@@ -1,50 +1,546 @@
-﻿services:
+﻿# ============================================================================
+# SCRAPER PRO - DOCKER COMPOSE PRODUCTION
+# Version: 2.0 Production-Ready
+# Description: Configuration Docker Compose optimisée pour production
+# ============================================================================
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # DATABASE - PostgreSQL avec optimisations production
+  # ==========================================================================
   db:
-    image: postgres:15
+    image: postgres:15-alpine
+    container_name: scraper-pro-db
+    hostname: scraper-db
     env_file: .env
     environment:
-      POSTGRES_DB: 
-      POSTGRES_USER: 
-      POSTGRES_PASSWORD: 
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Optimisations PostgreSQL
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      # Configuration avancée via postgresql.conf
+      POSTGRES_CONFIG: |
+        # Memory
+        shared_buffers = 256MB
+        effective_cache_size = 1GB
+        work_mem = 16MB
+        maintenance_work_mem = 64MB
+        
+        # Checkpoints
+        checkpoint_completion_target = 0.9
+        wal_buffers = 16MB
+        
+        # Connection
+        max_connections = 100
+        
+        # Logging  
+        log_statement = 'mod'
+        log_min_duration_statement = 1000
+        
+        # Performance
+        random_page_cost = 1.1
+        effective_io_concurrency = 200
     volumes:
+      # Données persistantes
       - pgdata:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Scripts d'initialisation
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./db/optimizations.sql:/docker-entrypoint-initdb.d/02-optimizations.sql:ro
+      # Backups
+      - ./backups:/backups
+      # Configuration personnalisée
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    ports:
+      # Port exposé pour administration externe (optionnel en production)
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U  -d  || exit 1"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
       timeout: 5s
-      retries: 20
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
+    networks:
+      - scraper-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
 
+  # ==========================================================================
+  # WORKER - Scraping Engine avec retry et monitoring
+  # ==========================================================================
   worker:
     build:
       context: .
       dockerfile: Dockerfile.worker
+      args:
+        PYTHON_VERSION: 3.11
+        PLAYWRIGHT_VERSION: 1.47.0
+    image: scraper-pro-worker:latest
+    container_name: scraper-pro-worker
+    hostname: scraper-worker
     env_file: .env
+    environment:
+      # Configuration spécifique worker
+      SCRAPY_SETTINGS_MODULE: scraper.settings
+      PYTHONUNBUFFERED: 1
+      PYTHONPATH: /app
+      # Monitoring
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus_metrics
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./sessions:/app/sessions
+      # Sessions et storage states
+      - ./sessions:/app/sessions:rw
+      # Logs applicatifs
+      - ./logs:/app/logs:rw
+      # Configuration
+      - ./config:/app/config:ro
+      # Cache Playwright (optionnel)
+      - playwright-cache:/home/playwright/.cache
+      # Métriques Prometheus
+      - worker-metrics:/tmp/prometheus_metrics
     restart: unless-stopped
+    networks:
+      - scraper-network
+    healthcheck:
+      test: |
+        python -c "
+        import psycopg2
+        import os
+        conn = psycopg2.connect(
+          host='db', port=5432,
+          database=os.environ['POSTGRES_DB'],
+          user=os.environ['POSTGRES_USER'], 
+          password=os.environ['POSTGRES_PASSWORD']
+        )
+        conn.close()
+        " || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G  
+          cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: "200m"
+        max-file: "5"
 
+  # ==========================================================================
+  # DASHBOARD - Interface Web Streamlit avec optimisations
+  # ==========================================================================
   dashboard:
     build:
       context: .
       dockerfile: Dockerfile.dashboard
+      args:
+        PYTHON_VERSION: 3.11
+    image: scraper-pro-dashboard:latest
+    container_name: scraper-pro-dashboard
+    hostname: scraper-dashboard
     env_file: .env
+    environment:
+      # Configuration Streamlit
+      STREAMLIT_SERVER_PORT: 8501
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_SERVER_HEADLESS: true
+      STREAMLIT_SERVER_ENABLE_CORS: false
+      STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION: true
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: false
+      # Base de données
+      POSTGRES_HOST: db
+      # Performance
+      STREAMLIT_SERVER_MAX_UPLOAD_SIZE: 200
+      STREAMLIT_SERVER_MAX_MESSAGE_SIZE: 200
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8501:8501"
-    environment:
-      DASHBOARD_USERNAME: 
-      DASHBOARD_PASSWORD: 
+      - "${DASHBOARD_PORT:-8501}:8501"
     volumes:
-      - ./sessions:/app/sessions
-      - ./dashboard:/app/dashboard
+      # Sessions pour upload
+      - ./sessions:/app/sessions:rw
+      # Logs
+      - ./logs:/app/logs:rw  
+      # Backups pour download
+      - ./backups:/app/backups:rw
+      # Configuration
+      - ./config:/app/config:ro
+      # Code dashboard (développement uniquement)
+      # - ./dashboard:/app/dashboard:ro
     restart: unless-stopped
+    networks:
+      - scraper-network
+    healthcheck:
+      test: |
+        curl -f http://localhost:8501/_stcore/health || 
+        python -c "
+        import requests
+        r = requests.get('http://localhost:8501')
+        exit(0 if r.status_code == 200 else 1)
+        " || exit 1
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
 
+  # ==========================================================================
+  # NGINX - Reverse Proxy et Load Balancer (Production)
+  # ==========================================================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: scraper-pro-nginx
+    hostname: scraper-nginx
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      # Configuration Nginx
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # SSL Certificates
+      - ./ssl:/etc/nginx/ssl:ro
+      # Logs Nginx
+      - ./nginx/logs:/var/log/nginx:rw
+      # Static files (optionnel)
+      - ./nginx/static:/var/www/static:ro
+    depends_on:
+      - dashboard
+    restart: unless-stopped
+    networks:
+      - scraper-network
+      - web-network
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+    profiles:
+      - production
+
+  # ==========================================================================
+  # REDIS - Cache et Session Store (Optionnel)
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: scraper-pro-redis
+    hostname: scraper-redis
+    command: >
+      redis-server 
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --timeout 0
+      --tcp-keepalive 300
+    volumes:
+      - redis-data:/data
+      - ./config/redis.conf:/etc/redis/redis.conf:ro
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    restart: unless-stopped
+    networks:
+      - scraper-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "2"
+    profiles:
+      - cache
+
+  # ==========================================================================
+  # MONITORING - Prometheus Metrics Collection
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: scraper-pro-prometheus
+    hostname: scraper-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+    networks:
+      - scraper-network
+    healthcheck:
+      test: ["CMD", "promtool", "query", "instant", "http://localhost:9090", "up"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    profiles:
+      - monitoring
+
+  # ==========================================================================
+  # GRAFANA - Monitoring Dashboard
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: scraper-pro-grafana
+    hostname: scraper-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+      GF_SECURITY_ALLOW_EMBEDDING: true
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - scraper-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    profiles:
+      - monitoring
+
+  # ==========================================================================
+  # PORTAINER - Docker Management (Développement)
+  # ==========================================================================
+  portainer:
+    image: portainer/portainer-ce:2.19.1
+    container_name: scraper-pro-portainer
+    hostname: scraper-portainer
+    command: -H unix:///var/run/docker.sock
+    ports:
+      - "${PORTAINER_PORT:-9000}:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data
+    restart: unless-stopped
+    networks:
+      - scraper-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    profiles:
+      - development
+
+  # ==========================================================================
+  # BACKUP SERVICE - Automated Backups
+  # ==========================================================================
+  backup:
+    build:
+      context: ./docker/backup
+      dockerfile: Dockerfile
+    image: scraper-pro-backup:latest
+    container_name: scraper-pro-backup
+    hostname: scraper-backup
+    env_file: .env
+    environment:
+      BACKUP_SCHEDULE: "${BACKUP_SCHEDULE:-daily}"
+      BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-30}"
+      POSTGRES_HOST: db
+    volumes:
+      - ./backups:/backups:rw
+      - ./logs:/logs:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - db
+    restart: unless-stopped
+    networks:
+      - scraper-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    profiles:
+      - backup
+
+# ==============================================================================
+# VOLUMES - Persistance des données
+# ==============================================================================
 volumes:
+  # Base de données PostgreSQL
   pgdata:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-./data}/postgres
+
+  # Cache Redis
+  redis-data:
+    driver: local
+    driver_opts:
+      type: none  
+      o: bind
+      device: ${DATA_PATH:-./data}/redis
+
+  # Métriques Prometheus
+  prometheus-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-./data}/prometheus
+
+  # Données Grafana
+  grafana-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-./data}/grafana
+
+  # Données Portainer
+  portainer-data:
+    driver: local
+
+  # Cache Playwright
+  playwright-cache:
+    driver: local
+
+  # Métriques Worker
+  worker-metrics:
+    driver: local
+
+# ==============================================================================
+# NETWORKS - Segmentation réseau
+# ==============================================================================
+networks:
+  # Réseau interne pour communication entre services
+  scraper-network:
+    driver: bridge
+    name: scraper-pro-internal
+    internal: false
+    attachable: true
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+          gateway: 172.20.0.1
+
+  # Réseau externe pour reverse proxy
+  web-network:
+    driver: bridge
+    name: scraper-pro-web
+    internal: false
+    attachable: false
+
+# ==============================================================================
+# CONFIGURATION PROFILES
+# ==============================================================================
+# Utilisation:
+# - Production:    docker compose --profile production up -d
+# - Développement: docker compose --profile development up -d  
+# - Monitoring:    docker compose --profile monitoring up -d
+# - Cache:         docker compose --profile cache up -d
+# - Backup:        docker compose --profile backup up -d
+#
+# Combinaisons:
+# - docker compose --profile production --profile monitoring up -d
+# ==============================================================================
+
+# Configuration par défaut (sans profile):
+# - db
+# - worker  
+# - dashboard
+#
+# Services optionnels avec profiles:
+# - nginx (production)
+# - redis (cache)
+# - prometheus + grafana (monitoring)
+# - portainer (development)
+# - backup (backup)

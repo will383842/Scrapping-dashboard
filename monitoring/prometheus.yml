@@ -1,0 +1,241 @@
+# ============================================================================
+# PROMETHEUS CONFIGURATION - SCRAPER PRO
+# Version: 2.0 Production-Ready
+# Description: Configuration complète de monitoring pour Scraper Pro
+# ============================================================================
+
+global:
+  # Intervalle de scraping par défaut
+  scrape_interval: 15s
+  # Timeout d'évaluation des règles
+  evaluation_interval: 15s
+  # Labels externes appliqués à toutes les métriques
+  external_labels:
+    cluster: "scraper-pro"
+    environment: "production"
+    region: "local"
+
+# Configuration des règles d'alerte
+rule_files:
+  - "rules/*.yml"
+  - "rules/scraper-pro/*.yml"
+
+# Configuration Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# ============================================================================
+# JOBS DE SCRAPING - SURVEILLANCE DES SERVICES
+# ============================================================================
+
+scrape_configs:
+  # --------------------------------------------------------------------------
+  # Prometheus self-monitoring
+  # --------------------------------------------------------------------------
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # --------------------------------------------------------------------------
+  # Dashboard Streamlit - Interface utilisateur
+  # --------------------------------------------------------------------------
+  - job_name: "scraper-dashboard"
+    static_configs:
+      - targets: ["dashboard:9091"]
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+    honor_labels: true
+    params:
+      format: ["prometheus"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: dashboard:9091
+
+  # --------------------------------------------------------------------------
+  # Worker Scraping Engine - Moteur de scraping
+  # --------------------------------------------------------------------------
+  - job_name: "scraper-worker"
+    static_configs:
+      - targets: ["worker:9090"]
+    scrape_interval: 10s
+    scrape_timeout: 8s
+    metrics_path: /metrics
+    honor_labels: true
+    metric_relabel_configs:
+      # Ajout de labels personnalisés
+      - source_labels: [__name__]
+        regex: "scraper_(.+)"
+        target_label: component
+        replacement: "worker"
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database - Base de données
+  # --------------------------------------------------------------------------
+  - job_name: "scraper-postgresql"
+    static_configs:
+      - targets: ["db:5432"]
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    params:
+      # Utilisation postgres_exporter si disponible
+      module: [default]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: postgres-exporter:9187
+
+  # --------------------------------------------------------------------------
+  # Docker Containers - Surveillance conteneurs
+  # --------------------------------------------------------------------------
+  - job_name: "docker-containers"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    scrape_interval: 20s
+    scrape_timeout: 15s
+    metrics_path: /metrics
+    honor_labels: true
+
+  # --------------------------------------------------------------------------
+  # Node Exporter - Métriques système hôte
+  # --------------------------------------------------------------------------
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+
+  # --------------------------------------------------------------------------
+  # Nginx Reverse Proxy - Métriques web server
+  # --------------------------------------------------------------------------
+  - job_name: "nginx"
+    static_configs:
+      - targets: ["nginx:9113"]
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+
+  # --------------------------------------------------------------------------
+  # Redis Cache - Métriques cache (si activé)
+  # --------------------------------------------------------------------------
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis:6379"]
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    params:
+      module: [default]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: redis-exporter:9121
+
+  # --------------------------------------------------------------------------
+  # Application Metrics - Métriques métier personnalisées
+  # --------------------------------------------------------------------------
+  - job_name: "scraper-business-metrics"
+    static_configs:
+      - targets: ["dashboard:8501"]
+    scrape_interval: 60s
+    scrape_timeout: 30s
+    metrics_path: /api/metrics
+    params:
+      format: ["prometheus"]
+    honor_labels: true
+    metric_relabel_configs:
+      # Filtrage des métriques importantes
+      - source_labels: [__name__]
+        regex: "scraper_(jobs|contacts|proxies|sessions)_.*"
+        action: keep
+
+  # --------------------------------------------------------------------------
+  # Health Checks - Surveillance de santé des services
+  # --------------------------------------------------------------------------
+  - job_name: "health-checks"
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    static_configs:
+      - targets:
+          - "dashboard:8501"
+          - "db:5432"
+          - "redis:6379"
+          - "nginx:80"
+    metrics_path: /health
+    params:
+      format: ["json"]
+
+# ============================================================================
+# CONFIGURATION AVANCÉE
+# ============================================================================
+
+# Configuration de stockage
+storage:
+  tsdb:
+    # Rétention des données
+    retention.time: 30d
+    retention.size: 10GB
+    # Compression
+    wal-compression: true
+    # Path de stockage
+    path: /prometheus/data
+
+# Configuration des logs
+log_level: info
+log_format: json
+
+# Configuration web
+web:
+  # Console templates
+  console.templates: /etc/prometheus/consoles
+  console.libraries: /etc/prometheus/console_libraries
+  # External URL
+  external-url: http://localhost:9090
+  # Admin API
+  enable-admin-api: true
+  # Lifecycle API
+  enable-lifecycle: true
+
+# Configuration runtime
+runtime:
+  # Memory ballast
+  gomaxprocs: 2
+  # Query timeout
+  query.timeout: 5m
+  # Query max concurrency
+  query.max-concurrency: 20
+# ============================================================================
+# MÉTRIQUES PERSONNALISÉES SCRAPER PRO
+# ============================================================================
+
+# Métriques collectées automatiquement:
+#
+# scraper_jobs_total{status="pending|in_progress|done|failed"}
+# scraper_jobs_duration_seconds{job_id}
+# scraper_contacts_extracted_total{country,theme}
+# scraper_proxies_active_total
+# scraper_proxies_response_time_seconds{proxy_id}
+# scraper_sessions_active_total{domain}
+# scraper_database_connections_active
+# scraper_database_query_duration_seconds{query_type}
+# scraper_worker_memory_usage_bytes
+# scraper_worker_cpu_usage_percent
+# scraper_dashboard_active_users_total
+# scraper_dashboard_page_load_duration_seconds{page}
+#
+# ============================================================================

@@ -1,0 +1,386 @@
+# ============================================================================
+# PROMETHEUS ALERTING RULES - SCRAPER PRO
+# Version: 2.0 Production-Ready
+# Description: Règles d'alerte complètes pour monitoring production
+# ============================================================================
+
+groups:
+  # ==========================================================================
+  # ALERTS INFRASTRUCTURE - Santé des services de base
+  # ==========================================================================
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # Service indisponible
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: infrastructure
+          service: "{{ $labels.job }}"
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} on {{ $labels.instance }} has been down for more than 1 minute."
+          runbook_url: "https://docs.scraper-pro.com/runbooks/service-down"
+          dashboard_url: "http://grafana:3000/d/infrastructure"
+
+      # Haute utilisation CPU
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }} for more than 5 minutes."
+
+      # Utilisation mémoire élevée
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }} for more than 5 minutes."
+
+      # Espace disque faible
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100 > 85
+        for: 2m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }} {{ $labels.mountpoint }}."
+
+  # ==========================================================================
+  # ALERTS DATABASE - Santé PostgreSQL
+  # ==========================================================================
+  - name: database
+    interval: 15s
+    rules:
+      # Base de données inaccessible
+      - alert: DatabaseDown
+        expr: up{job="scraper-postgresql"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "PostgreSQL database has been unreachable for more than 30 seconds."
+          runbook_url: "https://docs.scraper-pro.com/runbooks/database-down"
+
+      # Trop de connexions
+      - alert: TooManyDatabaseConnections
+        expr: scraper_database_connections_active > 80
+        for: 2m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Too many database connections"
+          description: "Database has {{ $value }} active connections (>80) for more than 2 minutes."
+
+      # Requêtes lentes
+      - alert: SlowDatabaseQueries
+        expr: rate(scraper_database_query_duration_seconds[5m]) > 5
+        for: 3m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Database queries are slow"
+          description: "Average query duration is {{ $value }}s for more than 3 minutes."
+
+      # Taille base de données
+      - alert: DatabaseSizeGrowthHigh
+        expr: increase(scraper_database_size_bytes[1h]) > 1e9 # 1GB/hour
+        for: 10m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Database growing too fast"
+          description: "Database has grown {{ $value | humanize }}B in the last hour."
+
+  # ==========================================================================
+  # ALERTS JOBS - Système de jobs de scraping
+  # ==========================================================================
+  - name: jobs
+    interval: 30s
+    rules:
+      # Taux d'échec des jobs élevé
+      - alert: HighJobFailureRate
+        expr: rate(scraper_jobs_total{status="failed"}[5m]) / rate(scraper_jobs_total[5m]) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          category: jobs
+        annotations:
+          summary: "High job failure rate"
+          description: "Job failure rate is {{ $value | humanizePercentage }} for more than 5 minutes."
+          dashboard_url: "http://grafana:3000/d/jobs"
+
+      # Jobs bloqués
+      - alert: JobsStuck
+        expr: scraper_jobs_total{status="in_progress"} and on(job_id) (time() - scraper_jobs_start_time) > 3600
+        for: 5m
+        labels:
+          severity: warning
+          category: jobs
+        annotations:
+          summary: "Jobs stuck in progress"
+          description: "Job {{ $labels.job_id }} has been running for more than 1 hour."
+
+      # Queue de jobs trop grande
+      - alert: JobQueueTooLarge
+        expr: scraper_jobs_total{status="pending"} > 1000
+        for: 10m
+        labels:
+          severity: warning
+          category: jobs
+        annotations:
+          summary: "Job queue is too large"
+          description: "There are {{ $value }} pending jobs in the queue for more than 10 minutes."
+
+      # Aucun job traité
+      - alert: NoJobsProcessed
+        expr: rate(scraper_jobs_total{status="done"}[10m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+          category: jobs
+        annotations:
+          summary: "No jobs processed recently"
+          description: "No jobs have been completed in the last 15 minutes."
+
+      # Jobs avec trop de retries
+      - alert: TooManyJobRetries
+        expr: scraper_jobs_retry_count > 5
+        for: 1m
+        labels:
+          severity: warning
+          category: jobs
+        annotations:
+          summary: "Job has too many retries"
+          description: "Job {{ $labels.job_id }} has {{ $value }} retry attempts."
+
+  # ==========================================================================
+  # ALERTS WORKER - Moteur de scraping
+  # ==========================================================================
+  - name: worker
+    interval: 30s
+    rules:
+      # Worker non réactif
+      - alert: WorkerNotResponding
+        expr: time() - scraper_worker_last_heartbeat > 300 # 5 minutes
+        for: 2m
+        labels:
+          severity: critical
+          category: worker
+        annotations:
+          summary: "Worker is not responding"
+          description: "Worker has not sent heartbeat for {{ $value }}s."
+          runbook_url: "https://docs.scraper-pro.com/runbooks/worker-down"
+
+      # Utilisation mémoire worker élevée
+      - alert: WorkerHighMemoryUsage
+        expr: scraper_worker_memory_usage_bytes > 2e9 # 2GB
+        for: 5m
+        labels:
+          severity: warning
+          category: worker
+        annotations:
+          summary: "Worker using too much memory"
+          description: "Worker is using {{ $value | humanize }}B of memory for more than 5 minutes."
+
+      # Temps de traitement élevé
+      - alert: HighJobProcessingTime
+        expr: avg(scraper_jobs_duration_seconds) > 1800 # 30 minutes
+        for: 10m
+        labels:
+          severity: warning
+          category: worker
+        annotations:
+          summary: "Job processing time is high"
+          description: "Average job processing time is {{ $value }}s for more than 10 minutes."
+
+  # ==========================================================================
+  # ALERTS PROXIES - Gestion des proxies
+  # ==========================================================================
+  - name: proxies
+    interval: 60s
+    rules:
+      # Trop peu de proxies actifs
+      - alert: LowActiveProxies
+        expr: scraper_proxies_active_total < 10
+        for: 5m
+        labels:
+          severity: warning
+          category: proxies
+        annotations:
+          summary: "Low number of active proxies"
+          description: "Only {{ $value }} proxies are currently active."
+
+      # Taux de succès des proxies faible
+      - alert: LowProxySuccessRate
+        expr: avg(scraper_proxies_success_rate) < 0.7
+        for: 10m
+        labels:
+          severity: warning
+          category: proxies
+        annotations:
+          summary: "Low proxy success rate"
+          description: "Average proxy success rate is {{ $value | humanizePercentage }} for more than 10 minutes."
+
+      # Temps de réponse proxies élevé
+      - alert: HighProxyResponseTime
+        expr: avg(scraper_proxies_response_time_seconds) > 10
+        for: 5m
+        labels:
+          severity: warning
+          category: proxies
+        annotations:
+          summary: "High proxy response time"
+          description: "Average proxy response time is {{ $value }}s for more than 5 minutes."
+
+  # ==========================================================================
+  # ALERTS DASHBOARD - Interface utilisateur
+  # ==========================================================================
+  - name: dashboard
+    interval: 30s
+    rules:
+      # Dashboard inaccessible
+      - alert: DashboardDown
+        expr: up{job="scraper-dashboard"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: dashboard
+        annotations:
+          summary: "Dashboard is down"
+          description: "Dashboard has been unreachable for more than 1 minute."
+          runbook_url: "https://docs.scraper-pro.com/runbooks/dashboard-down"
+
+      # Temps de chargement élevé
+      - alert: DashboardSlowResponse
+        expr: avg(scraper_dashboard_page_load_duration_seconds) > 5
+        for: 5m
+        labels:
+          severity: warning
+          category: dashboard
+        annotations:
+          summary: "Dashboard is responding slowly"
+          description: "Average page load time is {{ $value }}s for more than 5 minutes."
+
+      # Trop d'utilisateurs simultanés
+      - alert: TooManyDashboardUsers
+        expr: scraper_dashboard_active_users_total > 50
+        for: 10m
+        labels:
+          severity: warning
+          category: dashboard
+        annotations:
+          summary: "Too many dashboard users"
+          description: "{{ $value }} users are currently using the dashboard."
+
+  # ==========================================================================
+  # ALERTS BUSINESS METRICS - Métriques métier
+  # ==========================================================================
+  - name: business
+    interval: 300s # 5 minutes
+    rules:
+      # Extraction de contacts faible
+      - alert: LowContactExtractionRate
+        expr: rate(scraper_contacts_extracted_total[1h]) < 10
+        for: 30m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "Low contact extraction rate"
+          description: "Only {{ $value }} contacts extracted per hour for more than 30 minutes."
+          dashboard_url: "http://grafana:3000/d/business-metrics"
+
+      # Aucun nouveau contact
+      - alert: NoNewContacts
+        expr: increase(scraper_contacts_extracted_total[2h]) == 0
+        for: 15m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "No new contacts extracted"
+          description: "No contacts have been extracted in the last 2 hours."
+
+      # Taux de duplication élevé
+      - alert: HighContactDuplicationRate
+        expr: rate(scraper_contacts_duplicated_total[1h]) / rate(scraper_contacts_extracted_total[1h]) > 0.5
+        for: 20m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "High contact duplication rate"
+          description: "Contact duplication rate is {{ $value | humanizePercentage }} for more than 20 minutes."
+
+  # ==========================================================================
+  # ALERTS SÉCURITÉ - Détection d'anomalies
+  # ==========================================================================
+  - name: security
+    interval: 60s
+    rules:
+      # Tentatives de connexion suspectes
+      - alert: SuspiciousLoginAttempts
+        expr: rate(scraper_dashboard_login_attempts_total{result="failed"}[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "Suspicious login attempts detected"
+          description: "{{ $value }} failed login attempts per second for more than 2 minutes."
+
+      # Accès depuis IPs suspectes
+      - alert: SuspiciousIPAccess
+        expr: scraper_dashboard_requests_total{ip!~"192\\.168\\..*|10\\..*|172\\.(1[6-9]|2[0-9]|3[01])\\..*|127\\..*"} > 100
+        for: 10m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "High requests from external IP"
+          description: "{{ $value }} requests from external IP {{ $labels.ip }} in 10 minutes."
+
+# ============================================================================
+# CONFIGURATION DES INHIBITIONS
+# ============================================================================
+
+# Les inhibitions permettent de supprimer certaines alertes quand d'autres
+# alertes plus critiques sont déjà actives
+
+inhibit_rules:
+  # Si le service est down, pas besoin d'alerter sur les métriques
+  - source_match:
+      alertname: "ServiceDown"
+    target_match_re:
+      alertname: "(HighCPUUsage|HighMemoryUsage|DashboardSlowResponse)"
+    equal: ["instance"]
+
+  # Si la DB est down, pas d'alerte sur les jobs
+  - source_match:
+      alertname: "DatabaseDown"
+    target_match_re:
+      alertname: "(HighJobFailureRate|JobsStuck|NoJobsProcessed)"
+
+  # Si worker down, pas d'alerte sur processing
+  - source_match:
+      alertname: "WorkerNotResponding"
+    target_match_re:
+      alertname: "(HighJobProcessingTime|NoJobsProcessed)"

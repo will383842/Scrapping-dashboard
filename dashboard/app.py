@@ -4,650 +4,1556 @@ import psycopg2
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from psycopg2.extras import RealDictCursor
 from urllib.parse import urlparse
 import io
+import time
+import re
+from typing import Optional, Dict, List, Any
+import uuid
+import zipfile
+import base64
 
-# Configuration DB
-DB = dict(
-    host=os.getenv("POSTGRES_HOST", "db"),
-    port=int(os.getenv("POSTGRES_PORT", "5432")),
-    dbname=os.getenv("POSTGRES_DB", "scraper_pro"),
-    user=os.getenv("POSTGRES_USER", "scraper_admin"),
-    password=os.getenv("POSTGRES_PASSWORD", "scraper"),
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+st.set_page_config(
+    page_title="🕷️ Scraper Pro Dashboard",
+    page_icon="🕷️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': "Scraper Pro Dashboard - Version Production 2.0"
+    }
 )
 
+# Configuration DB avec pool de connexions
+DB_CONFIG = {
+    'host': os.getenv("POSTGRES_HOST", "db"),
+    'port': int(os.getenv("POSTGRES_PORT", "5432")),
+    'dbname': os.getenv("POSTGRES_DB", "scraper_pro"),
+    'user': os.getenv("POSTGRES_USER", "scraper_admin"),
+    'password': os.getenv("POSTGRES_PASSWORD", "scraper"),
+    'connect_timeout': 10,
+    'application_name': 'dashboard_streamlit'
+}
+
+# ============================================================================
+# UTILITAIRES DE BASE
+# ============================================================================
+
+@st.cache_resource
 def get_db_connection():
-    """Connexion DB avec gestion d'erreur"""
+    """Connexion DB avec cache et gestion d'erreur robuste"""
     try:
-        conn = psycopg2.connect(**DB, connect_timeout=5)
+        conn = psycopg2.connect(**DB_CONFIG)
         return conn
     except Exception as e:
-        st.error(f"Erreur connexion DB: {e}")
+        st.error(f"❌ Erreur connexion base de données: {e}")
         return None
 
-def require_auth():
-    """Système d'authentification"""
-    user_env = os.getenv("DASHBOARD_USERNAME", "admin")
-    pass_env = os.getenv("DASHBOARD_PASSWORD", "admin123")
+def execute_query(query: str, params: tuple = None, fetch: str = 'all') -> Optional[List]:
+    """Exécution sécurisée de requêtes avec gestion d'erreurs"""
+    conn = get_db_connection()
+    if not conn:
+        return None
     
-    if st.session_state.get("auth_ok"):
-        return True
-        
-    st.title("🔒 Connexion au Dashboard")
-    with st.form("login_form"):
-        col1, col2, col3 = st.columns([1,2,1])
-        with col2:
-            username = st.text_input("Utilisateur", placeholder="admin")
-            password = st.text_input("Mot de passe", type="password")
-            login_btn = st.form_submit_button("Se connecter", use_container_width=True)
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, params or ())
             
-        if login_btn:
-            if username == user_env and password == pass_env:
-                st.session_state["auth_ok"] = True
-                st.rerun()
-            else:
-                st.error("❌ Identifiants invalides")
-                st.info(f"Utilisez: {user_env} / {pass_env}")
+            if fetch == 'all':
+                return cur.fetchall()
+            elif fetch == 'one':
+                return cur.fetchone()
+            elif fetch == 'none':
+                conn.commit()
+                return True
+                
+    except Exception as e:
+        st.error(f"Erreur requête: {e}")
+        if conn:
+            conn.rollback()
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def validate_url(url: str) -> bool:
+    """Validation d'URL avec regex robuste"""
+    url_pattern = re.compile(
+        r'^https?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    return bool(url_pattern.match(url))
+
+# ============================================================================
+# SYSTÈME D'AUTHENTIFICATION
+# ============================================================================
+
+def require_authentication() -> bool:
+    """Système d'authentification avec session persistante"""
+    if st.session_state.get("authenticated"):
+        return True
+    
+    # Interface de connexion moderne
+    st.markdown("""
+        <style>
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background: white;
+        }
+        .login-title {
+            text-align: center;
+            color: #1f2937;
+            margin-bottom: 2rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    with st.container():
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown('<div class="login-container">', unsafe_allow_html=True)
+            st.markdown('<h2 class="login-title">🕷️ Scraper Pro</h2>', unsafe_allow_html=True)
+            
+            with st.form("login_form", clear_on_submit=False):
+                username = st.text_input("👤 Utilisateur", placeholder="admin")
+                password = st.text_input("🔒 Mot de passe", type="password")
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    login_button = st.form_submit_button("🚀 Connexion", use_container_width=True)
+                with col_b:
+                    if st.form_submit_button("ℹ️ Info", use_container_width=True):
+                        st.info(f"**Utilisateur:** {os.getenv('DASHBOARD_USERNAME', 'admin')}")
+                
+                if login_button:
+                    env_user = os.getenv("DASHBOARD_USERNAME", "admin")
+                    env_pass = os.getenv("DASHBOARD_PASSWORD", "admin123")
+                    
+                    if username == env_user and password == env_pass:
+                        st.session_state["authenticated"] = True
+                        st.session_state["username"] = username
+                        st.session_state["login_time"] = datetime.now()
+                        st.success("✅ Connexion réussie!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("❌ Identifiants invalides")
+                        
+            st.markdown('</div>', unsafe_allow_html=True)
+    
     return False
 
-def sidebar_navigation():
-    """Navigation sidebar moderne"""
+# ============================================================================
+# NAVIGATION ET LAYOUT
+# ============================================================================
+
+def render_sidebar():
+    """Sidebar navigation avec style moderne"""
     with st.sidebar:
-        st.title("🕷️ Scraper Pro")
+        # Header avec informations utilisateur
+        st.markdown(f"""
+            <div style="
+                background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+                padding: 1rem;
+                border-radius: 0.5rem;
+                color: white;
+                margin-bottom: 1rem;
+            ">
+                <h3 style="margin: 0;">🕷️ Scraper Pro</h3>
+                <small>👤 {st.session_state.get('username', 'admin')} • 
+                {datetime.now().strftime('%H:%M')}</small>
+            </div>
+        """, unsafe_allow_html=True)
         
-        # Status système
-        conn = get_db_connection()
-        if conn:
-            st.success("🟢 Système opérationnel")
-            conn.close()
-        else:
-            st.error("🔴 Problème DB")
-            
+        # Status système en temps réel
+        with st.container():
+            system_status = get_system_status()
+            if system_status:
+                if system_status['db_connected']:
+                    st.success("🟢 Système Opérationnel")
+                else:
+                    st.error("🔴 Problème Base de Données")
+                    
+                # Métriques rapides
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Jobs", system_status.get('pending_jobs', 0), delta=None)
+                with col2:
+                    st.metric("Proxies", system_status.get('active_proxies', 0), delta=None)
+            else:
+                st.warning("⚠️ Chargement...")
+        
         st.divider()
         
-        # Menu navigation
+        # Menu navigation principal
         pages = {
-            "📊 Dashboard": "dashboard",
+            "📊 Dashboard": "dashboard", 
             "🎯 Jobs Manager": "jobs",
-            "📇 Contacts": "contacts", 
-            "🌐 Proxies": "proxies",
-            "⚙️ Settings": "settings"
+            "📇 Contacts Explorer": "contacts",
+            "🌐 Proxy Management": "proxies", 
+            "🗂️ Sessions": "sessions",
+            "📈 Analytics": "analytics",
+            "⚙️ Settings": "settings",
+            "🔧 System Monitor": "monitor"
         }
         
-        selected = st.radio("Navigation", list(pages.keys()), key="nav_radio")
+        selected_page = st.radio("📋 Navigation", list(pages.keys()), key="nav_radio")
         
-        return pages[selected]
-
-def page_dashboard():
-    """Page dashboard principal avec KPIs"""
-    st.title("📊 Dashboard Principal")
-    
-    conn = get_db_connection()
-    if not conn:
-        return
+        st.divider()
         
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        # KPIs généraux
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            cur.execute("SELECT COUNT(*) FROM queue WHERE status = 'pending'")
-            pending_jobs = cur.fetchone()['count']
-            st.metric("🔄 Jobs en attente", pending_jobs)
-            
-        with col2:
-            cur.execute("SELECT COUNT(*) FROM contacts WHERE DATE(created_at) = CURRENT_DATE")
-            contacts_today = cur.fetchone()['count']  
-            st.metric("👥 Contacts aujourd'hui", contacts_today)
-            
-        with col3:
-            cur.execute("SELECT COUNT(*) FROM proxies WHERE active = true")
-            active_proxies = cur.fetchone()['count']
-            st.metric("🌐 Proxies actifs", active_proxies)
-            
-        with col4:
-            cur.execute("""
-                SELECT COUNT(*) as total,
-                       SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done
-                FROM queue WHERE DATE(created_at) = CURRENT_DATE
-            """)
-            perf = cur.fetchone()
-            success_rate = round(perf['done'] / max(perf['total'], 1) * 100, 1)
-            st.metric("✅ Taux de succès", f"{success_rate}%")
-    
-    conn.close()
-
-def page_jobs():
-    """Page de gestion des jobs"""
-    st.title("🎯 Gestion des Jobs")
-    
-    # Formulaire création job
-    with st.expander("➕ Nouveau Job", expanded=True):
-        with st.form("create_job"):
-            col1, col2 = st.columns(2)
-            with col1:
-                url = st.text_input("URL à scraper", placeholder="https://example.com")
-                country = st.selectbox("Pays", ["", "France", "Thailand", "United States"])
-                theme = st.selectbox("Thème", ["lawyers", "doctors", "consultants"])
-                
-            with col2:
-                language = st.selectbox("Langue", ["", "fr", "en"])
-                use_js = st.checkbox("Utiliser JavaScript", value=False)
-                max_pages = st.slider("Max pages par domaine", 1, 100, 15)
-            
-            submit = st.form_submit_button("🚀 Créer Job", use_container_width=True)
-                
-            if submit and url:
-                conn = get_db_connection()
-                if conn:
-                    try:
-                        with conn.cursor() as cur:
-                            cur.execute("""
-                                INSERT INTO queue (url, country_filter, lang_filter, theme, 
-                                                 use_js, max_pages_per_domain, status)
-                                VALUES (%s, %s, %s, %s, %s, %s, 'pending')
-                            """, (url, country or None, language or None, theme, 
-                                 use_js, max_pages))
-                            conn.commit()
-                        st.success("✅ Job créé avec succès!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Erreur création job: {e}")
-                    finally:
-                        conn.close()
-    
-    # Liste des jobs
-    st.subheader("📋 Liste des Jobs")
-    
-    conn = get_db_connection()
-    if not conn:
-        return
-        
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("""
-            SELECT id, url, status, theme, use_js, created_at, updated_at
-            FROM queue 
-            ORDER BY id DESC 
-            LIMIT 50
-        """)
-        jobs = pd.DataFrame(cur.fetchall())
-    
-    if not jobs.empty:
-        st.dataframe(jobs, use_container_width=True, hide_index=True)
-    else:
-        st.info("Aucun job trouvé")
-    
-    conn.close()
-
-def page_proxies():
-    """Page de gestion des proxies - FONCTIONNALITÉ CRITIQUE"""
-    st.title("🌐 Gestion des Proxies")
-    
-    # Section ajout de proxies
-    st.subheader("➕ Ajouter des Proxies")
-    
-    tab1, tab2 = st.tabs(["📝 Proxy Unique", "📋 Import en Masse"])
-    
-    with tab1:
-        with st.form("add_single_proxy"):
-            col1, col2 = st.columns(2)
-            with col1:
-                label = st.text_input("Label", placeholder="Proxy France 1")
-                scheme = st.selectbox("Type", ["http", "https", "socks5"])
-                host = st.text_input("Host/IP", placeholder="1.2.3.4")
-                port = st.number_input("Port", min_value=1, max_value=65535, value=8080)
-            with col2:
-                username = st.text_input("Username (optionnel)")
-                password = st.text_input("Password (optionnel)", type="password")
-                priority = st.slider("Priorité", 1, 100, 10)
-                active = st.checkbox("Actif", value=True)
-                
-            submit_single = st.form_submit_button("➕ Ajouter Proxy")
-            
-            if submit_single and host and port:
-                conn = get_db_connection()
-                if conn:
-                    try:
-                        with conn.cursor() as cur:
-                            cur.execute("""
-                                INSERT INTO proxies (label, scheme, host, port, username, password, priority, active)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (scheme, host, port, COALESCE(username, ''))
-                                DO UPDATE SET 
-                                    label = EXCLUDED.label,
-                                    priority = EXCLUDED.priority,
-                                    active = EXCLUDED.active
-                            """, (label or f"{host}:{port}", scheme, host, port, 
-                                 username or None, password or None, priority, active))
-                            conn.commit()
-                        st.success("✅ Proxy ajouté!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Erreur: {e}")
-                    finally:
-                        conn.close()
-    
-    with tab2:
-        st.info("💡 Format supporté: IP:PORT ou IP:PORT:USER:PASS (un par ligne)")
-        bulk_input = st.text_area("Liste de proxies", height=200, 
-                                 placeholder="""192.168.1.1:8080
-192.168.1.2:8080:user:pass
-proxy.example.com:3128""")
+        # Actions rapides
+        st.subheader("⚡ Actions Rapides")
         
         col1, col2 = st.columns(2)
         with col1:
-            bulk_scheme = st.selectbox("Type par défaut", ["http", "https", "socks5"], key="bulk_scheme")
-            bulk_priority = st.slider("Priorité par défaut", 1, 100, 10, key="bulk_priority")
-        with col2:
-            bulk_active = st.checkbox("Tous actifs", value=True, key="bulk_active")
-            
-        if st.button("📥 Importer Proxies en Masse"):
-            if bulk_input.strip():
-                conn = get_db_connection()
-                if conn:
-                    added_count = 0
-                    failed_count = 0
-                    
-                    for line in bulk_input.strip().split('\n'):
-                        line = line.strip()
-                        if not line:
-                            continue
-                            
-                        try:
-                            parts = line.split(':')
-                            if len(parts) >= 2:
-                                host = parts[0]
-                                port = int(parts[1])
-                                username = parts[2] if len(parts) > 2 else None
-                                password = parts[3] if len(parts) > 3 else None
-                                
-                                with conn.cursor() as cur:
-                                    cur.execute("""
-                                        INSERT INTO proxies (label, scheme, host, port, username, password, priority, active)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                        ON CONFLICT (scheme, host, port, COALESCE(username, ''))
-                                        DO UPDATE SET active = EXCLUDED.active
-                                    """, (f"{host}:{port}", bulk_scheme, host, port, 
-                                         username, password, bulk_priority, bulk_active))
-                                added_count += 1
-                        except Exception as e:
-                            failed_count += 1
-                            st.warning(f"Erreur ligne '{line}': {e}")
-                    
-                    conn.commit()
-                    conn.close()
-                    
-                    if added_count:
-                        st.success(f"✅ {added_count} proxies ajoutés!")
-                    if failed_count:
-                        st.warning(f"⚠️ {failed_count} lignes ignorées")
-                    
-                    st.rerun()
-    
-    # Liste des proxies existants
-    st.divider()
-    st.subheader("📊 Proxies Configurés")
-    
-    conn = get_db_connection()
-    if not conn:
-        return
-        
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("""
-            SELECT id, label, scheme, host, port, username, active, priority, 
-                   last_used_at, created_at
-            FROM proxies 
-            ORDER BY active DESC, priority ASC, id DESC
-        """)
-        proxies_data = pd.DataFrame(cur.fetchall())
-    
-    if not proxies_data.empty:
-        # Actions bulk sur proxies
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            if st.button("✅ Activer Tous"):
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE proxies SET active = true")
-                    conn.commit()
-                st.success("Tous les proxies activés")
+            if st.button("🔄 Refresh", use_container_width=True):
+                st.cache_data.clear()
                 st.rerun()
         with col2:
-            if st.button("⏸️ Désactiver Tous"):
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE proxies SET active = false")
-                    conn.commit()
-                st.warning("Tous les proxies désactivés")
-                st.rerun()
-        with col3:
-            if st.button("🧪 Test Tous"):
-                st.info("Test en masse en développement")
-        with col4:
-            if st.button("🗑️ Supprimer Inactifs"):
-                with conn.cursor() as cur:
-                    cur.execute("DELETE FROM proxies WHERE active = false")
-                    deleted = cur.rowcount
-                    conn.commit()
-                st.success(f"{deleted} proxies supprimés")
+            if st.button("🚪 Déconnexion", use_container_width=True):
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
                 st.rerun()
         
-        # Affichage du tableau
-        st.dataframe(proxies_data, use_container_width=True, hide_index=True)
+        # Informations système
+        with st.expander("ℹ️ Info Système", expanded=False):
+            st.text(f"Version: 2.0 Production")
+            st.text(f"Uptime: {get_system_uptime()}")
+            st.text(f"DB: PostgreSQL")
+            st.text(f"Host: {DB_CONFIG['host']}")
         
-        # Stats proxies
-        active_count = len(proxies_data[proxies_data['active'] == True])
-        total_count = len(proxies_data)
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total proxies", total_count)
-        with col2:
-            st.metric("Proxies actifs", active_count)  
-        with col3:
-            success_rate = round(active_count / total_count * 100, 1) if total_count else 0
-            st.metric("Taux actifs", f"{success_rate}%")
-            
-    else:
-        st.info("Aucun proxy configuré. Utilisez les onglets ci-dessus pour en ajouter.")
-    
-    conn.close()
+        return pages[selected_page]
 
-def page_contacts():
-    """Page de visualisation et gestion des contacts"""
-    st.title("📇 Explorer les Contacts")
-    
-    conn = get_db_connection()
-    if not conn:
-        return
-    
-    # Stats rapides
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("SELECT COUNT(*) as total FROM contacts")
-        total_contacts = cur.fetchone()['total']
+def get_system_status() -> Dict:
+    """Récupération du statut système en temps réel"""
+    try:
+        # Status DB
+        conn = get_db_connection()
+        if not conn:
+            return {'db_connected': False}
         
-        cur.execute("SELECT COUNT(*) as today FROM contacts WHERE DATE(created_at) = CURRENT_DATE")
-        today_contacts = cur.fetchone()['today']
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Jobs en attente
+            cur.execute("SELECT COUNT(*) as count FROM queue WHERE status = 'pending'")
+            pending_jobs = cur.fetchone()['count']
+            
+            # Proxies actifs
+            cur.execute("SELECT COUNT(*) as count FROM proxies WHERE active = true")
+            active_proxies = cur.fetchone()['count']
+            
+            # Scheduler status
+            cur.execute("SELECT value FROM settings WHERE key = 'scheduler_paused'")
+            scheduler_result = cur.fetchone()
+            scheduler_paused = scheduler_result and scheduler_result['value'] == 'true'
+            
+        conn.close()
         
-        cur.execute("SELECT COUNT(DISTINCT country) as countries FROM contacts WHERE country IS NOT NULL")
-        unique_countries = cur.fetchone()['countries']
+        return {
+            'db_connected': True,
+            'pending_jobs': pending_jobs,
+            'active_proxies': active_proxies,
+            'scheduler_paused': scheduler_paused
+        }
+        
+    except Exception:
+        return {'db_connected': False}
+
+def get_system_uptime() -> str:
+    """Calcul de l'uptime système"""
+    login_time = st.session_state.get('login_time')
+    if login_time:
+        uptime = datetime.now() - login_time
+        hours = int(uptime.total_seconds() // 3600)
+        minutes = int((uptime.total_seconds() % 3600) // 60)
+        return f"{hours}h {minutes}m"
+    return "N/A"
+
+# ============================================================================
+# PAGES PRINCIPALES
+# ============================================================================
+
+def page_dashboard():
+    """Dashboard principal avec KPIs et monitoring temps réel"""
+    st.title("📊 Dashboard Principal")
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("📊 Total Contacts", total_contacts)
-    with col2:
-        st.metric("📈 Aujourd'hui", today_contacts)
-    with col3:
-        st.metric("🌍 Pays", unique_countries)
+    # Auto-refresh toutes les 30 secondes
+    if st.button("🔄 Auto-Refresh (30s)", key="auto_refresh"):
+        time.sleep(30)
+        st.rerun()
     
-    # Filtres
-    st.subheader("🔍 Filtres et Recherche")
+    # Métriques principales en temps réel
+    with st.container():
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        # Récupération des métriques
+        metrics_query = """
+        SELECT 
+            (SELECT COUNT(*) FROM queue WHERE status = 'pending') as pending_jobs,
+            (SELECT COUNT(*) FROM queue WHERE status = 'in_progress') as running_jobs,
+            (SELECT COUNT(*) FROM queue WHERE status = 'done' AND DATE(updated_at) = CURRENT_DATE) as completed_today,
+            (SELECT COUNT(*) FROM contacts WHERE DATE(created_at) = CURRENT_DATE) as contacts_today,
+            (SELECT COUNT(*) FROM proxies WHERE active = true) as active_proxies
+        """
+        
+        metrics = execute_query(metrics_query, fetch='one')
+        if metrics:
+            with col1:
+                st.metric("🔄 En attente", metrics['pending_jobs'], 
+                         delta=f"+{metrics['pending_jobs']}" if metrics['pending_jobs'] > 0 else None)
+            with col2:
+                st.metric("⚡ En cours", metrics['running_jobs'],
+                         delta="Running" if metrics['running_jobs'] > 0 else None)
+            with col3:
+                st.metric("✅ Terminés", metrics['completed_today'])
+            with col4:
+                st.metric("👥 Contacts", metrics['contacts_today'])
+            with col5:
+                st.metric("🌐 Proxies", metrics['active_proxies'])
     
+    st.divider()
+    
+    # Graphiques de performance
     col1, col2 = st.columns(2)
+    
     with col1:
-        search_query = st.text_input("🔍 Rechercher", placeholder="Nom, email, organisation...")
+        st.subheader("📈 Activité des 7 derniers jours")
+        
+        activity_query = """
+        SELECT 
+            DATE(updated_at) as date,
+            COUNT(*) FILTER (WHERE status = 'done') as completed,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed,
+            SUM(contacts_extracted) FILTER (WHERE contacts_extracted > 0) as total_contacts
+        FROM queue 
+        WHERE updated_at >= CURRENT_DATE - INTERVAL '7 days'
+        GROUP BY DATE(updated_at)
+        ORDER BY date
+        """
+        
+        activity_data = execute_query(activity_query)
+        if activity_data:
+            df_activity = pd.DataFrame(activity_data)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=df_activity['date'], 
+                y=df_activity['completed'],
+                name='Jobs Réussis',
+                line=dict(color='green'),
+                mode='lines+markers'
+            ))
+            fig.add_trace(go.Scatter(
+                x=df_activity['date'], 
+                y=df_activity['failed'],
+                name='Jobs Échoués',
+                line=dict(color='red'),
+                mode='lines+markers'
+            ))
+            
+            fig.update_layout(
+                title="Performance des Jobs",
+                xaxis_title="Date",
+                yaxis_title="Nombre de Jobs",
+                height=300
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
     with col2:
-        limit = st.selectbox("Nombre", [100, 250, 500])
+        st.subheader("🌍 Répartition par Pays")
+        
+        countries_query = """
+        SELECT country, COUNT(*) as count 
+        FROM contacts 
+        WHERE country IS NOT NULL 
+          AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY country 
+        ORDER BY count DESC 
+        LIMIT 10
+        """
+        
+        countries_data = execute_query(countries_query)
+        if countries_data:
+            df_countries = pd.DataFrame(countries_data)
+            
+            fig = px.pie(
+                df_countries, 
+                values='count', 
+                names='country',
+                title="Top 10 Pays (30 derniers jours)"
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig, use_container_width=True)
     
-    # Récupération des contacts
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        if search_query:
-            cur.execute("""
-                SELECT id, name, email, org, phone, country, theme, created_at
-                FROM contacts 
-                WHERE name ILIKE %s OR email ILIKE %s OR org ILIKE %s
-                ORDER BY created_at DESC 
-                LIMIT %s
-            """, (f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", limit))
+    # Jobs récents et alerts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🔥 Jobs Récents")
+        
+        recent_jobs_query = """
+        SELECT id, url, status, theme, retry_count, updated_at,
+               CASE 
+                   WHEN status = 'done' THEN '✅'
+                   WHEN status = 'failed' THEN '❌'
+                   WHEN status = 'in_progress' THEN '⚡'
+                   ELSE '🔄'
+               END as status_icon
+        FROM queue 
+        ORDER BY updated_at DESC 
+        LIMIT 10
+        """
+        
+        recent_jobs = execute_query(recent_jobs_query)
+        if recent_jobs:
+            df_jobs = pd.DataFrame(recent_jobs)
+            df_jobs['url_short'] = df_jobs['url'].str[:40] + '...'
+            
+            st.dataframe(
+                df_jobs[['status_icon', 'id', 'url_short', 'theme', 'updated_at']],
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    'status_icon': st.column_config.TextColumn("Status", width=60),
+                    'id': st.column_config.NumberColumn("ID", width=60),
+                    'url_short': st.column_config.TextColumn("URL"),
+                    'theme': st.column_config.TextColumn("Thème", width=100),
+                    'updated_at': st.column_config.DatetimeColumn("Mis à jour", width=120)
+                }
+            )
+    
+    with col2:
+        st.subheader("⚠️ Alertes & Problèmes")
+        
+        alerts_query = """
+        SELECT 
+            'Jobs bloqués' as alert_type,
+            COUNT(*) as count,
+            '🚨' as icon
+        FROM queue 
+        WHERE status = 'in_progress' 
+          AND updated_at < NOW() - INTERVAL '2 hours'
+        UNION ALL
+        SELECT 
+            'Proxies défaillants' as alert_type,
+            COUNT(*) as count,
+            '🔴' as icon
+        FROM proxies 
+        WHERE active = true 
+          AND success_rate < 0.7
+        UNION ALL
+        SELECT 
+            'Sessions expirées' as alert_type,
+            COUNT(*) as count,
+            '⚠️' as icon
+        FROM sessions 
+        WHERE active = true 
+          AND validation_status = 'invalid'
+        """
+        
+        alerts = execute_query(alerts_query)
+        if alerts:
+            for alert in alerts:
+                if alert['count'] > 0:
+                    st.warning(f"{alert['icon']} {alert['alert_type']}: {alert['count']}")
+        
+        # Status scheduler
+        scheduler_status = get_system_status()
+        if scheduler_status.get('scheduler_paused'):
+            st.error("⏸️ Scheduler en PAUSE")
         else:
-            cur.execute("""
-                SELECT id, name, email, org, phone, country, theme, created_at
-                FROM contacts 
-                ORDER BY created_at DESC 
-                LIMIT %s
-            """, (limit,))
-        
-        contacts_data = cur.fetchall()
+            st.success("▶️ Scheduler ACTIF")
+
+def page_jobs():
+    """Gestion avancée des jobs avec filtres et actions bulk"""
+    st.title("🎯 Jobs Manager")
     
-    if contacts_data:
-        df = pd.DataFrame(contacts_data)
+    # Création de job avec validation
+    with st.expander("➕ Nouveau Job", expanded=True):
+        with st.form("create_job_form", clear_on_submit=False):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                url = st.text_input("🔗 URL", placeholder="https://example.com")
+                country = st.selectbox("🌍 Pays", ["", "France", "Thailand", "United States", "Canada", "Germany", "Spain"])
+                theme = st.selectbox("🏷️ Thème", ["lawyers", "doctors", "consultants", "real-estate", "restaurants"])
+                
+            with col2:
+                language = st.selectbox("🗣️ Langue", ["", "fr", "en", "es", "de", "th"])
+                use_js = st.checkbox("🚀 Utiliser JavaScript", value=False)
+                max_pages = st.slider("📄 Max pages/domaine", 1, 200, 25)
+                
+            with col3:
+                priority = st.slider("⭐ Priorité", 1, 100, 10)
+                
+                # Sélection de session
+                sessions_query = "SELECT id, domain, type FROM sessions WHERE active = true ORDER BY domain"
+                sessions = execute_query(sessions_query)
+                session_options = {"Aucune": None}
+                if sessions:
+                    session_options.update({f"{s['domain']} ({s['type']})": s['id'] for s in sessions})
+                
+                selected_session = st.selectbox("🗂️ Session", list(session_options.keys()))
+                session_id = session_options[selected_session]
+                
+                target_count = st.number_input("🎯 Contacts cibles", min_value=0, value=0, help="0 = illimité")
+            
+            # Validation et création
+            col_a, col_b, col_c = st.columns([2, 1, 1])
+            with col_a:
+                create_job = st.form_submit_button("🚀 Créer Job", use_container_width=True, type="primary")
+            with col_b:
+                test_url = st.form_submit_button("🧪 Test URL", use_container_width=True)
+            with col_c:
+                quick_job = st.form_submit_button("⚡ Job Express", use_container_width=True)
+            
+            if test_url and url:
+                if validate_url(url):
+                    st.success("✅ URL valide")
+                else:
+                    st.error("❌ URL invalide")
+            
+            if create_job and url:
+                if not validate_url(url):
+                    st.error("❌ URL invalide")
+                else:
+                    # Insertion du job
+                    insert_query = """
+                    INSERT INTO queue (
+                        url, country_filter, lang_filter, theme, use_js, 
+                        max_pages_per_domain, priority, session_id, target_count,
+                        created_by, status
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
+                    """
+                    
+                    params = (
+                        url, country or None, language or None, theme, use_js,
+                        max_pages, priority, session_id, target_count, 
+                        st.session_state.get('username', 'dashboard')
+                    )
+                    
+                    if execute_query(insert_query, params, fetch='none'):
+                        st.success("✅ Job créé avec succès!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de la création")
+            
+            if quick_job and url:
+                # Job express avec paramètres par défaut
+                if validate_url(url):
+                    quick_params = (url, None, None, "lawyers", False, 15, 10, None, 0, "quick")
+                    if execute_query(insert_query, quick_params, fetch='none'):
+                        st.success("⚡ Job express créé!")
+                        st.rerun()
+    
+    st.divider()
+    
+    # Filtres et recherche avancée
+    st.subheader("🔍 Filtres & Recherche")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        status_filter = st.multiselect("Status", ["pending", "in_progress", "done", "failed"], default=[])
+        theme_filter = st.multiselect("Thème", ["lawyers", "doctors", "consultants"], default=[])
+    
+    with col2:
+        date_from = st.date_input("Date début", value=datetime.now().date() - timedelta(days=7))
+        date_to = st.date_input("Date fin", value=datetime.now().date())
+    
+    with col3:
+        search_url = st.text_input("🔍 Recherche URL", placeholder="Tapez pour chercher...")
+        limit = st.selectbox("Limite résultats", [50, 100, 250, 500], index=1)
+    
+    with col4:
+        sort_by = st.selectbox("Trier par", ["updated_at", "created_at", "priority", "retry_count"])
+        sort_order = st.selectbox("Ordre", ["DESC", "ASC"])
+    
+    # Construction requête avec filtres
+    base_query = """
+    SELECT 
+        id, url, status, theme, country_filter, lang_filter, 
+        use_js, priority, retry_count, max_retries, contacts_extracted,
+        created_at, updated_at, last_error, next_retry_at,
+        CASE 
+            WHEN status = 'done' THEN '✅'
+            WHEN status = 'failed' THEN '❌'
+            WHEN status = 'in_progress' THEN '⚡'
+            WHEN status = 'pending' AND retry_count > 0 THEN '🔄'
+            ELSE '⏳'
+        END as status_icon
+    FROM queue 
+    WHERE 1=1
+    """
+    
+    params = []
+    
+    if status_filter:
+        placeholders = ','.join(['%s'] * len(status_filter))
+        base_query += f" AND status IN ({placeholders})"
+        params.extend(status_filter)
+    
+    if theme_filter:
+        placeholders = ','.join(['%s'] * len(theme_filter))
+        base_query += f" AND theme IN ({placeholders})"
+        params.extend(theme_filter)
+    
+    if search_url:
+        base_query += " AND url ILIKE %s"
+        params.append(f"%{search_url}%")
+    
+    base_query += f" AND DATE(created_at) BETWEEN %s AND %s"
+    params.extend([date_from, date_to])
+    
+    base_query += f" ORDER BY {sort_by} {sort_order} LIMIT %s"
+    params.append(limit)
+    
+    # Affichage des résultats
+    jobs_data = execute_query(base_query, tuple(params))
+    
+    if jobs_data:
+        df_jobs = pd.DataFrame(jobs_data)
         
-        # Actions d'export
-        st.subheader("📥 Export et Actions")
-        col1, col2, col3 = st.columns(3)
+        # Actions bulk
+        st.subheader("⚡ Actions en Lot")
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
+            if st.button("⏸️ Pause Sélectionnés", help="Mettre en pause les jobs sélectionnés"):
+                st.info("Fonctionnalité en développement")
+        with col2:
+            if st.button("▶️ Resume Sélectionnés"):
+                st.info("Fonctionnalité en développement") 
+        with col3:
+            if st.button("🔄 Retry Échoués"):
+                retry_query = "UPDATE queue SET status = 'pending', retry_count = 0 WHERE status = 'failed'"
+                if execute_query(retry_query, fetch='none'):
+                    st.success("✅ Jobs échoués remis en file")
+                    st.rerun()
+        with col4:
+            if st.button("🗑️ Supprimer Anciens"):
+                cleanup_query = """
+                UPDATE queue SET deleted_at = NOW() 
+                WHERE status IN ('done', 'failed') 
+                  AND updated_at < NOW() - INTERVAL '7 days'
+                """
+                if execute_query(cleanup_query, fetch='none'):
+                    st.success("✅ Anciens jobs supprimés")
+                    st.rerun()
+        with col5:
             if st.button("📊 Export CSV"):
-                csv = df.to_csv(index=False)
+                csv = df_jobs.to_csv(index=False)
                 st.download_button(
-                    label="⬇️ Télécharger CSV",
+                    "⬇️ Télécharger",
                     data=csv,
-                    file_name=f"contacts_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    file_name=f"jobs_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
                 )
-                
+        
+        # Tableau interactif avec sélection
+        st.subheader(f"📋 Jobs ({len(df_jobs)} résultats)")
+        
+        # Configuration des colonnes pour l'affichage
+        df_display = df_jobs.copy()
+        df_display['url_short'] = df_display['url'].str[:60] + '...'
+        df_display['error_short'] = df_display['last_error'].fillna('').str[:50]
+        
+        st.dataframe(
+            df_display[[
+                'status_icon', 'id', 'url_short', 'theme', 'priority',
+                'retry_count', 'contacts_extracted', 'updated_at'
+            ]],
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                'status_icon': st.column_config.TextColumn("", width=40),
+                'id': st.column_config.NumberColumn("ID", width=60),
+                'url_short': st.column_config.TextColumn("URL"),
+                'theme': st.column_config.TextColumn("Thème", width=100),
+                'priority': st.column_config.NumberColumn("Priorité", width=80),
+                'retry_count': st.column_config.NumberColumn("Retry", width=60),
+                'contacts_extracted': st.column_config.NumberColumn("Contacts", width=80),
+                'updated_at': st.column_config.DatetimeColumn("Mis à jour", width=130)
+            }
+        )
+        
+        # Statistiques résumé
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Jobs", len(df_jobs))
         with col2:
+            success_rate = len(df_jobs[df_jobs['status'] == 'done']) / len(df_jobs) * 100
+            st.metric("Taux Succès", f"{success_rate:.1f}%")
+        with col3:
+            total_contacts = df_jobs['contacts_extracted'].sum()
+            st.metric("Total Contacts", total_contacts)
+        with col4:
+            avg_contacts = df_jobs[df_jobs['contacts_extracted'] > 0]['contacts_extracted'].mean()
+            st.metric("Moy. Contacts/Job", f"{avg_contacts:.1f}" if pd.notna(avg_contacts) else "N/A")
+        
+    else:
+        st.info("Aucun job trouvé avec ces critères")
+
+# ============================================================================
+# CONTINUATION DU DASHBOARD - PARTIE 2
+# ============================================================================
+
+def page_contacts():
+    """Page d'exploration et gestion avancée des contacts"""
+    st.title("📇 Contacts Explorer")
+    
+    # Stats rapides et KPIs
+    stats_query = """
+    SELECT 
+        COUNT(*) as total_contacts,
+        COUNT(*) FILTER (WHERE DATE(created_at) = CURRENT_DATE) as today_contacts,
+        COUNT(*) FILTER (WHERE verified = true) as verified_contacts,
+        COUNT(DISTINCT country) as unique_countries,
+        COUNT(DISTINCT theme) as unique_themes,
+        COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days') as week_contacts
+    FROM contacts WHERE deleted_at IS NULL
+    """
+    
+    stats = execute_query(stats_query, fetch='one')
+    if stats:
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        
+        with col1:
+            st.metric("📊 Total", f"{stats['total_contacts']:,}")
+        with col2:
+            st.metric("📈 Aujourd'hui", stats['today_contacts'])
+        with col3:
+            st.metric("✅ Vérifiés", stats['verified_contacts'])
+        with col4:
+            st.metric("🌍 Pays", stats['unique_countries'])
+        with col5:
+            st.metric("🏷️ Thèmes", stats['unique_themes'])
+        with col6:
+            st.metric("📅 Cette semaine", stats['week_contacts'])
+    
+    st.divider()
+    
+    # Filtres et recherche avancée
+    st.subheader("🔍 Filtres Avancés")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        # Récupération des options de filtrage
+        countries_query = "SELECT DISTINCT country FROM contacts WHERE country IS NOT NULL ORDER BY country"
+        countries_data = execute_query(countries_query)
+        countries = ["Tous"] + [c['country'] for c in (countries_data or [])]
+        
+        selected_country = st.selectbox("🌍 Pays", countries)
+        
+        themes_query = "SELECT DISTINCT theme FROM contacts WHERE theme IS NOT NULL ORDER BY theme"
+        themes_data = execute_query(themes_query)
+        themes = ["Tous"] + [t['theme'] for t in (themes_data or [])]
+        
+        selected_theme = st.selectbox("🏷️ Thème", themes)
+    
+    with col2:
+        search_text = st.text_input("🔍 Recherche", placeholder="Nom, email, organisation...")
+        
+        verified_filter = st.selectbox("Vérification", ["Tous", "Vérifiés", "Non vérifiés"])
+        
+    with col3:
+        date_from = st.date_input("📅 Date début", value=datetime.now().date() - timedelta(days=30))
+        date_to = st.date_input("📅 Date fin", value=datetime.now().date())
+    
+    with col4:
+        sort_options = {
+            "Plus récents": "created_at DESC",
+            "Plus anciens": "created_at ASC", 
+            "Nom A-Z": "name ASC",
+            "Nom Z-A": "name DESC",
+            "Pays A-Z": "country ASC"
+        }
+        
+        sort_by = st.selectbox("🔄 Tri", list(sort_options.keys()))
+        limit = st.selectbox("📊 Limite", [100, 250, 500, 1000], index=1)
+    
+    # Construction de la requête avec filtres
+    base_contacts_query = """
+    SELECT 
+        id, name, email, org, phone, country, theme, 
+        verified, created_at, updated_at, page_lang, url,
+        CASE WHEN verified THEN '✅' ELSE '⏳' END as verified_icon
+    FROM contacts 
+    WHERE deleted_at IS NULL
+    """
+    
+    contacts_params = []
+    
+    if selected_country != "Tous":
+        base_contacts_query += " AND country = %s"
+        contacts_params.append(selected_country)
+    
+    if selected_theme != "Tous":
+        base_contacts_query += " AND theme = %s"
+        contacts_params.append(selected_theme)
+    
+    if search_text:
+        base_contacts_query += " AND (name ILIKE %s OR email ILIKE %s OR org ILIKE %s)"
+        search_param = f"%{search_text}%"
+        contacts_params.extend([search_param, search_param, search_param])
+    
+    if verified_filter == "Vérifiés":
+        base_contacts_query += " AND verified = true"
+    elif verified_filter == "Non vérifiés":
+        base_contacts_query += " AND verified = false"
+    
+    base_contacts_query += " AND DATE(created_at) BETWEEN %s AND %s"
+    contacts_params.extend([date_from, date_to])
+    
+    base_contacts_query += f" ORDER BY {sort_options[sort_by]} LIMIT %s"
+    contacts_params.append(limit)
+    
+    # Récupération des données
+    contacts_data = execute_query(base_contacts_query, tuple(contacts_params))
+    
+    if contacts_data:
+        df_contacts = pd.DataFrame(contacts_data)
+        
+        # Actions en lot
+        st.subheader("⚡ Actions sur les Contacts")
+        
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        
+        with col1:
+            if st.button("✅ Marquer Vérifiés"):
+                st.info("Sélectionnez d'abord les contacts")
+        
+        with col2:
+            if st.button("📧 Valider Emails"):
+                st.info("Validation email en développement")
+        
+        with col3:
+            if st.button("🧹 Déduplication"):
+                dedup_query = """
+                WITH duplicates AS (
+                    SELECT id, email, ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at ASC) as rn
+                    FROM contacts WHERE deleted_at IS NULL
+                )
+                UPDATE contacts SET deleted_at = NOW() 
+                WHERE id IN (SELECT id FROM duplicates WHERE rn > 1)
+                """
+                result = execute_query(dedup_query, fetch='none')
+                if result:
+                    st.success("✅ Doublons supprimés")
+                    st.rerun()
+        
+        with col4:
+            if st.button("📊 Export CSV"):
+                csv_data = df_contacts.to_csv(index=False)
+                st.download_button(
+                    "⬇️ Télécharger CSV",
+                    data=csv_data,
+                    file_name=f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+        
+        with col5:
             if st.button("📈 Export Excel"):
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df.to_excel(writer, sheet_name='Contacts', index=False)
+                    df_contacts.to_excel(writer, sheet_name='Contacts', index=False)
+                    
+                    # Formatage Excel
+                    workbook = writer.book
+                    worksheet = writer.sheets['Contacts']
+                    
+                    # Format header
+                    header_format = workbook.add_format({
+                        'bold': True,
+                        'bg_color': '#4F81BD',
+                        'font_color': 'white'
+                    })
+                    
+                    for col_num, value in enumerate(df_contacts.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
                 
                 st.download_button(
-                    label="⬇️ Télécharger Excel", 
+                    "⬇️ Télécharger Excel",
                     data=output.getvalue(),
-                    file_name=f"contacts_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    file_name=f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-                
-        with col3:
+        
+        with col6:
             if st.button("📧 Export Emails"):
-                emails = df['email'].dropna().tolist()
-                email_text = '\n'.join(emails)
+                emails_list = df_contacts['email'].dropna().tolist()
+                emails_text = '\n'.join(emails_list)
+                
                 st.download_button(
-                    label="⬇️ Liste Emails",
-                    data=email_text,
-                    file_name=f"emails_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                    "⬇️ Liste Emails",
+                    data=emails_text,
+                    file_name=f"emails_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                     mime="text/plain"
                 )
         
-        # Affichage du tableau
-        st.subheader(f"📋 Résultats ({len(contacts_data)} contacts)")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        # Affichage du tableau principal
+        st.subheader(f"📋 Contacts ({len(df_contacts):,} résultats)")
         
-    else:
-        st.info("Aucun contact trouvé")
-    
-    conn.close()
-
-def page_settings():
-    """Page des paramètres système"""
-    st.title("⚙️ Paramètres Système")
-    
-    conn = get_db_connection()
-    if not conn:
-        return
-    
-    # Récupération des paramètres actuels
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("SELECT key, value FROM settings ORDER BY key")
-        current_settings = {row['key']: row['value'] for row in cur.fetchall()}
-    
-    # Configuration du scraping
-    st.subheader("🕷️ Configuration Scraping")
-    
-    with st.form("scraping_settings"):
-        col1, col2 = st.columns(2)
+        # Préparation des données d'affichage
+        df_display = df_contacts.copy()
+        df_display['name_display'] = df_display['name'].fillna('N/A').str[:30]
+        df_display['email_display'] = df_display['email'].str[:35]
+        df_display['org_display'] = df_display['org'].fillna('N/A').str[:25]
         
-        with col1:
-            js_limit = st.number_input(
-                "Limite pages JS par jour",
-                min_value=0,
-                value=int(current_settings.get('js_pages_limit','2000'))
-            )
-            
-            concurrent_req = st.number_input(
-                "Requêtes simultanées",
-                min_value=1,
-                max_value=50,
-                value=16
-            )
-            
-        with col2:
-            download_delay = st.number_input(
-                "Délai entre requêtes (sec)",
-                min_value=0.0,
-                max_value=10.0,
-                value=0.5,
-                step=0.1
-            )
-            
-            max_pages_default = st.number_input(
-                "Pages max par domaine",
-                min_value=1,
-                max_value=200,
-                value=50
-            )
-        
-        # Scheduler settings
-        st.subheader("⏰ Configuration Scheduler")
-        scheduler_paused = st.checkbox(
-            "Mettre en pause le scheduler",
-            value=current_settings.get('scheduler_paused', 'false') == 'true'
+        # Sélection interactive
+        selected_contacts = st.dataframe(
+            df_display[[
+                'verified_icon', 'name_display', 'email_display', 'org_display',
+                'phone', 'country', 'theme', 'created_at'
+            ]],
+            hide_index=True,
+            use_container_width=True,
+            selection_mode="multi-row",
+            column_config={
+                'verified_icon': st.column_config.TextColumn("✓", width=30),
+                'name_display': st.column_config.TextColumn("Nom", width=120),
+                'email_display': st.column_config.TextColumn("Email", width=140),
+                'org_display': st.column_config.TextColumn("Organisation", width=120),
+                'phone': st.column_config.TextColumn("Téléphone", width=120),
+                'country': st.column_config.TextColumn("Pays", width=80),
+                'theme': st.column_config.TextColumn("Thème", width=100),
+                'created_at': st.column_config.DatetimeColumn("Créé le", width=110)
+            }
         )
         
-        submit_settings = st.form_submit_button("💾 Enregistrer les Paramètres")
+        # Statistiques de la sélection actuelle
+        st.subheader("📊 Statistiques de la Sélection")
         
-        if submit_settings:
-            try:
-                with conn.cursor() as cur:
-                    # Mise à jour des settings en DB
-                    settings_to_update = [
-                        ('js_pages_limit', str(js_limit)),
-                        ('scheduler_paused', str(scheduler_paused).lower()),
-                        ('max_pages_default', str(max_pages_default))
-                    ]
-                    
-                    for key, value in settings_to_update:
-                        cur.execute("""
-                            INSERT INTO settings (key, value) 
-                            VALUES (%s, %s)
-                            ON CONFLICT (key) 
-                            DO UPDATE SET value = EXCLUDED.value
-                        """, (key, value))
-                    
-                    conn.commit()
-                
-                st.success("✅ Paramètres enregistrés!")
-                
-            except Exception as e:
-                st.error(f"❌ Erreur lors de la sauvegarde: {e}")
-    
-    # Informations système
-    st.divider()
-    st.subheader("ℹ️ Informations Système")
-    
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM queue")
-        total_jobs = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM contacts")
-        total_contacts = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM proxies")
-        total_proxies = cur.fetchone()[0]
+        col1, col2, col3, col4 = st.columns(4)
         
-    st.info(f"""
-    **Statistiques:**
-    - Jobs total: {total_jobs:,}
-    - Contacts total: {total_contacts:,}  
-    - Proxies total: {total_proxies:,}
-    """)
+        with col1:
+            verified_count = len(df_contacts[df_contacts['verified'] == True])
+            verified_rate = (verified_count / len(df_contacts) * 100) if len(df_contacts) > 0 else 0
+            st.metric("Taux Vérification", f"{verified_rate:.1f}%")
+        
+        with col2:
+            countries_count = df_contacts['country'].nunique()
+            st.metric("Pays Uniques", countries_count)
+        
+        with col3:
+            themes_count = df_contacts['theme'].nunique() 
+            st.metric("Thèmes Uniques", themes_count)
+        
+        with col4:
+            has_phone = len(df_contacts[df_contacts['phone'].notna()])
+            phone_rate = (has_phone / len(df_contacts) * 100) if len(df_contacts) > 0 else 0
+            st.metric("Avec Téléphone", f"{phone_rate:.1f}%")
+        
+    else:
+        st.info("🔍 Aucun contact trouvé avec ces critères de recherche")
+        
+        # Suggestions
+        st.markdown("**Suggestions:**")
+        st.markdown("- Élargir la période de dates")
+        st.markdown("- Supprimer certains filtres")
+        st.markdown("- Vérifier l'orthographe des termes de recherche")
+
+# ============================================================================
+# PAGE PROXY MANAGEMENT AVANCÉE
+# ============================================================================
+
+def page_proxies():
+    """Page de gestion complète des proxies avec monitoring"""
+    st.title("🌐 Proxy Management")
     
-    # Utilisation JS pages
-    js_used = int(current_settings.get('js_pages_used', '0'))
-    js_limit_val = int(current_settings.get('js_pages_limit', '2000'))
+    # Stats proxies en temps réel
+    proxy_stats_query = """
+    SELECT 
+        COUNT(*) as total_proxies,
+        COUNT(*) FILTER (WHERE active = true) as active_proxies,
+        COUNT(*) FILTER (WHERE last_test_status = 'success') as working_proxies,
+        COUNT(*) FILTER (WHERE last_test_status = 'failed') as failed_proxies,
+        AVG(response_time_ms) FILTER (WHERE response_time_ms > 0) as avg_response_time,
+        AVG(success_rate) as avg_success_rate
+    FROM proxies
+    """
     
-    st.metric(
-        "Pages JS utilisées aujourd'hui", 
-        f"{js_used:,} / {js_limit_val:,}"
-    )
+    proxy_stats = execute_query(proxy_stats_query, fetch='one')
+    if proxy_stats:
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        
+        with col1:
+            st.metric("📊 Total", proxy_stats['total_proxies'])
+        with col2:
+            st.metric("🟢 Actifs", proxy_stats['active_proxies'])
+        with col3:
+            st.metric("✅ Fonctionnels", proxy_stats['working_proxies'] or 0)
+        with col4:
+            st.metric("❌ En échec", proxy_stats['failed_proxies'] or 0)
+        with col5:
+            avg_time = proxy_stats['avg_response_time']
+            st.metric("⏱️ Temps moy.", f"{avg_time:.0f}ms" if avg_time else "N/A")
+        with col6:
+            avg_rate = proxy_stats['avg_success_rate']
+            st.metric("📈 Taux succès", f"{avg_rate:.1f}%" if avg_rate else "N/A")
     
-    # Actions d'administration
     st.divider()
-    st.subheader("🔧 Actions d'Administration")
     
+    # Ajout de proxies - Interface améliorée
+    st.subheader("➕ Ajouter des Proxies")
+    
+    tab1, tab2, tab3 = st.tabs(["📝 Proxy Unique", "📋 Import en Masse", "🔧 Import Avancé"])
+    
+    with tab1:
+        with st.form("add_single_proxy"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                label = st.text_input("🏷️ Label", placeholder="Proxy France 1")
+                scheme = st.selectbox("🔌 Type", ["http", "https", "socks5"])
+                host = st.text_input("🌐 Host/IP", placeholder="1.2.3.4")
+                port = st.number_input("📟 Port", min_value=1, max_value=65535, value=8080)
+                
+            with col2:
+                username = st.text_input("👤 Username (optionnel)")
+                password = st.text_input("🔒 Password (optionnel)", type="password")
+                priority = st.slider("⭐ Priorité", 1, 100, 10)
+                active = st.checkbox("✅ Actif", value=True)
+                
+            with col3:
+                country_code = st.text_input("🏳️ Code Pays", placeholder="FR", max_chars=2)
+                provider = st.text_input("🏢 Fournisseur", placeholder="ProxyProvider")
+                cost_per_gb = st.number_input("💰 Coût/GB", min_value=0.0, value=0.0, step=0.01)
+                
+            submit_single = st.form_submit_button("➕ Ajouter Proxy", use_container_width=True, type="primary")
+            
+            if submit_single and host and port:
+                insert_proxy_query = """
+                INSERT INTO proxies (
+                    label, scheme, host, port, username, password, priority, active,
+                    country_code, provider, cost_per_gb, created_by
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (scheme, host, port, COALESCE(username, ''))
+                DO UPDATE SET 
+                    label = EXCLUDED.label,
+                    priority = EXCLUDED.priority,
+                    active = EXCLUDED.active,
+                    updated_at = NOW()
+                """
+                
+                params = (
+                    label or f"{host}:{port}", scheme, host, port,
+                    username or None, password or None, priority, active,
+                    country_code.upper() or None, provider or None, cost_per_gb,
+                    st.session_state.get('username', 'dashboard')
+                )
+                
+                if execute_query(insert_proxy_query, params, fetch='none'):
+                    st.success("✅ Proxy ajouté avec succès!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Erreur lors de l'ajout")
+    
+    with tab2:
+        st.info("💡 **Formats supportés:**\n- `IP:PORT`\n- `IP:PORT:USER:PASS`\n- `SCHEME://IP:PORT`\n- `SCHEME://USER:PASS@IP:PORT`")
+        
+        bulk_input = st.text_area(
+            "Liste de proxies (un par ligne)", 
+            height=200,
+            placeholder="""192.168.1.1:8080
+192.168.1.2:8080:user:pass
+http://proxy.example.com:3128
+socks5://user:pass@proxy.example.com:1080"""
+        )
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            bulk_scheme = st.selectbox("🔌 Type par défaut", ["http", "https", "socks5"], key="bulk_scheme")
+            bulk_priority = st.slider("⭐ Priorité par défaut", 1, 100, 10, key="bulk_priority")
+            
+        with col2:
+            bulk_active = st.checkbox("✅ Tous actifs", value=True, key="bulk_active")
+            auto_test = st.checkbox("🧪 Test automatique", value=True)
+            
+        with col3:
+            bulk_country = st.text_input("🏳️ Code pays", placeholder="FR", key="bulk_country", max_chars=2)
+            bulk_provider = st.text_input("🏢 Fournisseur", key="bulk_provider")
+        
+        if st.button("📥 Importer Proxies en Masse", use_container_width=True, type="primary"):
+            if bulk_input.strip():
+                import_results = import_bulk_proxies(
+                    bulk_input, bulk_scheme, bulk_priority, bulk_active,
+                    bulk_country, bulk_provider, auto_test
+                )
+                
+                if import_results:
+                    st.success(f"✅ {import_results['added']} proxies importés!")
+                    if import_results['failed'] > 0:
+                        st.warning(f"⚠️ {import_results['failed']} lignes ignorées")
+                    if import_results['duplicates'] > 0:
+                        st.info(f"ℹ️ {import_results['duplicates']} doublons mis à jour")
+                    
+                    st.rerun()
+    
+    with tab3:
+        st.subheader("🔧 Import depuis Fichier")
+        
+        uploaded_file = st.file_uploader(
+            "Choisir un fichier proxy", 
+            type=['txt', 'csv'],
+            help="Fichier texte ou CSV avec une liste de proxies"
+        )
+        
+        if uploaded_file:
+            content = uploaded_file.read().decode('utf-8')
+            st.text_area("Aperçu du contenu", content[:500] + "...", height=150, disabled=True)
+            
+            if st.button("📥 Importer depuis Fichier"):
+                results = import_bulk_proxies(content, "http", 10, True, "", "", False)
+                if results:
+                    st.success(f"✅ Import terminé: {results['added']} ajoutés, {results['failed']} échoués")
+                    st.rerun()
+    
+    st.divider()
+    
+    # Actions en lot sur proxies existants
+    st.subheader("⚡ Actions en Lot")
+    
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    
+    with col1:
+        if st.button("✅ Activer Tous", use_container_width=True):
+            update_query = "UPDATE proxies SET active = true, updated_at = NOW()"
+            if execute_query(update_query, fetch='none'):
+                st.success("✅ Tous les proxies activés")
+                st.rerun()
+    
+    with col2:
+        if st.button("⏸️ Désactiver Tous", use_container_width=True):
+            update_query = "UPDATE proxies SET active = false, updated_at = NOW()"
+            if execute_query(update_query, fetch='none'):
+                st.warning("⏸️ Tous les proxies désactivés")
+                st.rerun()
+    
+    with col3:
+        if st.button("🧪 Test Tous Actifs", use_container_width=True):
+            with st.spinner("Test des proxies en cours..."):
+                test_results = test_all_proxies()
+                if test_results:
+                    st.info(f"🧪 Test terminé: {test_results['tested']} proxies testés")
+                    st.rerun()
+    
+    with col4:
+        if st.button("🗑️ Suppr. Inactifs", use_container_width=True):
+            delete_query = "DELETE FROM proxies WHERE active = false"
+            if execute_query(delete_query, fetch='none'):
+                st.success("🗑️ Proxies inactifs supprimés")
+                st.rerun()
+    
+    with col5:
+        if st.button("🔄 Reset Stats", use_container_width=True):
+            reset_query = """
+            UPDATE proxies SET 
+                total_requests = 0, failed_requests = 0, success_rate = 1.0,
+                response_time_ms = 0, last_test_at = NULL, last_test_status = NULL
+            """
+            if execute_query(reset_query, fetch='none'):
+                st.success("🔄 Statistiques réinitialisées")
+                st.rerun()
+    
+    with col6:
+        if st.button("📊 Export Config", use_container_width=True):
+            export_data = export_proxy_config()
+            if export_data:
+                st.download_button(
+                    "⬇️ Télécharger",
+                    data=export_data,
+                    file_name=f"proxy_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+    
+    # Liste des proxies avec monitoring
+    st.subheader("📊 Monitoring des Proxies")
+    
+    # Filtres pour la liste
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("🔄 Reset Compteur JS"):
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO settings (key, value) VALUES ('js_pages_used', '0')
-                        ON CONFLICT (key) DO UPDATE SET value = '0'
-                    """)
-                    conn.commit()
-                st.success("Compteur JS remis à zéro")
-            except Exception as e:
-                st.error(f"Erreur: {e}")
-    
+        status_filter = st.selectbox("Status", ["Tous", "Actifs", "Inactifs", "Fonctionnels", "En échec"])
     with col2:
-        if st.button("🗑️ Nettoyer Jobs"):
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        DELETE FROM queue 
-                        WHERE status IN ('done', 'failed') 
-                        AND created_at < NOW() - INTERVAL '7 days'
-                    """)
-                    deleted = cur.rowcount
-                    conn.commit()
-                st.success(f"{deleted} anciens jobs supprimés")
-            except Exception as e:
-                st.error(f"Erreur: {e}")
-    
+        country_filter = st.selectbox("Pays", ["Tous"] + get_unique_proxy_countries())
     with col3:
-        if st.button("💾 Export Config"):
-            config_export = {
-                'settings': current_settings,
-                'export_date': datetime.now().isoformat()
-            }
-            
-            config_json = json.dumps(config_export, indent=2, ensure_ascii=False)
-            st.download_button(
-                "⬇️ Télécharger Config",
-                data=config_json,
-                file_name=f"scraper_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
-            )
+        sort_proxy = st.selectbox("Trier par", ["Priorité", "Temps réponse", "Taux succès", "Dernière utilisation"])
     
-    conn.close()
+    # Requête pour récupérer les proxies
+    proxies_query = build_proxy_query(status_filter, country_filter, sort_proxy)
+    proxies_data = execute_query(proxies_query)
+    
+    if proxies_data:
+        df_proxies = pd.DataFrame(proxies_data)
+        
+        # Affichage tableau avec métriques
+        st.dataframe(
+            df_proxies,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                'status_icon': st.column_config.TextColumn("", width=40),
+                'label': st.column_config.TextColumn("Label", width=120),
+                'proxy_url': st.column_config.TextColumn("Proxy", width=180),
+                'country_code': st.column_config.TextColumn("Pays", width=60),
+                'response_time_ms': st.column_config.ProgressColumn(
+                    "Temps (ms)", 
+                    min_value=0, 
+                    max_value=5000,
+                    format="%.0f ms"
+                ),
+                'success_rate': st.column_config.ProgressColumn(
+                    "Succès %", 
+                    min_value=0.0, 
+                    max_value=1.0,
+                    format="%.1%"
+                ),
+                'total_requests': st.column_config.NumberColumn("Total Req.", width=80),
+                'last_used_at': st.column_config.DatetimeColumn("Dernière util.", width=130)
+            }
+        )
+        
+        # Graphiques de monitoring
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Distribution des temps de réponse
+            if 'response_time_ms' in df_proxies.columns:
+                fig_response = px.histogram(
+                    df_proxies[df_proxies['response_time_ms'] > 0], 
+                    x='response_time_ms',
+                    title="Distribution des Temps de Réponse",
+                    nbins=20
+                )
+                fig_response.update_layout(height=300)
+                st.plotly_chart(fig_response, use_container_width=True)
+        
+        with col2:
+            # Distribution par pays
+            if 'country_code' in df_proxies.columns:
+                country_counts = df_proxies['country_code'].value_counts()
+                fig_countries = px.pie(
+                    values=country_counts.values, 
+                    names=country_counts.index,
+                    title="Répartition par Pays"
+                )
+                st.plotly_chart(fig_countries, use_container_width=True)
+        
+    else:
+        st.info("Aucun proxy trouvé")
+
+# ============================================================================
+# FONCTIONS UTILITAIRES POUR PROXIES
+# ============================================================================
+
+def import_bulk_proxies(content: str, default_scheme: str, default_priority: int, 
+                       default_active: bool, default_country: str, default_provider: str, 
+                       auto_test: bool) -> dict:
+    """Import en masse de proxies avec parsing intelligent"""
+    results = {'added': 0, 'failed': 0, 'duplicates': 0}
+    
+    for line_num, line in enumerate(content.strip().split('\n'), 1):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        
+        try:
+            proxy_info = parse_proxy_line(line, default_scheme)
+            if not proxy_info:
+                results['failed'] += 1
+                continue
+            
+            # Insert avec gestion des doublons
+            insert_query = """
+            INSERT INTO proxies (
+                label, scheme, host, port, username, password, priority, active,
+                country_code, provider, created_by
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (scheme, host, port, COALESCE(username, ''))
+            DO UPDATE SET 
+                active = EXCLUDED.active,
+                priority = EXCLUDED.priority,
+                updated_at = NOW()
+            RETURNING (xmax = 0) as inserted
+            """
+            
+            params = (
+                proxy_info.get('label', f"{proxy_info['host']}:{proxy_info['port']}"),
+                proxy_info['scheme'], proxy_info['host'], proxy_info['port'],
+                proxy_info.get('username'), proxy_info.get('password'),
+                default_priority, default_active,
+                default_country.upper() if default_country else None,
+                default_provider or None,
+                st.session_state.get('username', 'bulk_import')
+            )
+            
+            result = execute_query(insert_query, params, fetch='one')
+            if result and result['inserted']:
+                results['added'] += 1
+            else:
+                results['duplicates'] += 1
+                
+        except Exception as e:
+            st.warning(f"Erreur ligne {line_num}: {line} - {e}")
+            results['failed'] += 1
+    
+    return results
+
+def parse_proxy_line(line: str, default_scheme: str) -> Optional[Dict]:
+    """Parse une ligne proxy dans différents formats"""
+    import re
+    
+    # Format: scheme://username:password@host:port
+    full_match = re.match(r'^(\w+)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$', line)
+    if full_match:
+        scheme, username, password, host, port = full_match.groups()
+        return {
+            'scheme': scheme,
+            'host': host,
+            'port': int(port),
+            'username': username,
+            'password': password
+        }
+    
+    # Format: host:port:username:password
+    parts = line.split(':')
+    if len(parts) >= 2:
+        try:
+            host = parts[0]
+            port = int(parts[1])
+            username = parts[2] if len(parts) > 2 else None
+            password = parts[3] if len(parts) > 3 else None
+            
+            return {
+                'scheme': default_scheme,
+                'host': host,
+                'port': port,
+                'username': username,
+                'password': password
+            }
+        except ValueError:
+            pass
+    
+    return None
+
+def test_all_proxies() -> dict:
+    """Test automatique de tous les proxies actifs"""
+    import requests
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    
+    proxies_query = "SELECT id, scheme, host, port, username, password FROM proxies WHERE active = true"
+    proxies = execute_query(proxies_query)
+    
+    if not proxies:
+        return {'tested': 0}
+    
+    results = {'tested': 0, 'working': 0, 'failed': 0}
+    
+    def test_single_proxy(proxy):
+        proxy_id = proxy['id']
+        proxy_url = build_proxy_url(proxy)
+        
+        try:
+            start_time = time.time()
+            response = requests.get(
+                'http://httpbin.org/ip', 
+                proxies={'http': proxy_url, 'https': proxy_url},
+                timeout=10
+            )
+            
+            response_time = int((time.time() - start_time) * 1000)
+            
+            if response.status_code == 200:
+                # Update success
+                update_query = """
+                UPDATE proxies SET 
+                    last_test_at = NOW(),
+                    last_test_status = 'success',
+                    response_time_ms = %s,
+                    success_rate = CASE 
+                        WHEN total_requests = 0 THEN 1.0
+                        ELSE (total_requests - failed_requests + 1.0) / (total_requests + 1.0)
+                    END,
+                    total_requests = total_requests + 1
+                WHERE id = %s
+                """
+                execute_query(update_query, (response_time, proxy_id), fetch='none')
+                results['working'] += 1
+            else:
+                raise Exception(f"Status code: {response.status_code}")
+                
+        except Exception as e:
+            # Update failure
+            update_query = """
+            UPDATE proxies SET 
+                last_test_at = NOW(),
+                last_test_status = 'failed',
+                success_rate = CASE 
+                    WHEN total_requests = 0 THEN 0.0
+                    ELSE (total_requests - failed_requests) / (total_requests + 1.0)
+                END,
+                total_requests = total_requests + 1,
+                failed_requests = failed_requests + 1
+            WHERE id = %s
+            """
+            execute_query(update_query, (proxy_id,), fetch='none')
+            results['failed'] += 1
+        
+        results['tested'] += 1
+    
+    # Test en parallèle avec limite
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        executor.map(test_single_proxy, proxies)
+    
+    return results
+
+def build_proxy_url(proxy: dict) -> str:
+    """Construction d'URL proxy à partir des infos DB"""
+    scheme = proxy['scheme']
+    host = proxy['host']
+    port = proxy['port']
+    username = proxy.get('username')
+    password = proxy.get('password')
+    
+    if username and password:
+        return f"{scheme}://{username}:{password}@{host}:{port}"
+    else:
+        return f"{scheme}://{host}:{port}"
+
+def get_unique_proxy_countries() -> List[str]:
+    """Récupération des pays uniques pour les filtres"""
+    query = "SELECT DISTINCT country_code FROM proxies WHERE country_code IS NOT NULL ORDER BY country_code"
+    result = execute_query(query)
+    return [r['country_code'] for r in (result or [])]
+
+def build_proxy_query(status_filter: str, country_filter: str, sort_option: str) -> str:
+    """Construction de requête avec filtres pour les proxies"""
+    base_query = """
+    SELECT 
+        id, label, scheme, host, port, username, active, priority,
+        response_time_ms, success_rate, total_requests, failed_requests,
+        last_used_at, last_test_at, last_test_status, country_code,
+        provider, created_at,
+        CASE 
+            WHEN active = false THEN '⏸️'
+            WHEN last_test_status = 'success' THEN '🟢'
+            WHEN last_test_status = 'failed' THEN '🔴'
+            ELSE '⚪'
+        END as status_icon,
+        CASE 
+            WHEN username IS NOT NULL THEN CONCAT(scheme, '://', username, ':***@', host, ':', port)
+            ELSE CONCAT(scheme, '://', host, ':', port)
+        END as proxy_url
+    FROM proxies 
+    WHERE 1=1
+    """
+    
+    # Filtres
+    if status_filter == "Actifs":
+        base_query += " AND active = true"
+    elif status_filter == "Inactifs":
+        base_query += " AND active = false"
+    elif status_filter == "Fonctionnels":
+        base_query += " AND last_test_status = 'success'"
+    elif status_filter == "En échec":
+        base_query += " AND last_test_status = 'failed'"
+    
+    if country_filter != "Tous":
+        base_query += f" AND country_code = '{country_filter}'"
+    
+    # Tri
+    if sort_option == "Priorité":
+        base_query += " ORDER BY active DESC, priority ASC"
+    elif sort_option == "Temps réponse":
+        base_query += " ORDER BY response_time_ms ASC NULLS LAST"
+    elif sort_option == "Taux succès":
+        base_query += " ORDER BY success_rate DESC"
+    elif sort_option == "Dernière utilisation":
+        base_query += " ORDER BY last_used_at DESC NULLS LAST"
+    
+    return base_query
+
+def export_proxy_config() -> str:
+    """Export de la configuration des proxies en JSON"""
+    query = """
+    SELECT scheme, host, port, username, password, active, priority, country_code, provider
+    FROM proxies 
+    ORDER BY priority, id
+    """
+    
+    proxies = execute_query(query)
+    if proxies:
+        config = {
+            'proxies': proxies,
+            'export_date': datetime.now().isoformat(),
+            'total_count': len(proxies)
+        }
+        return json.dumps(config, indent=2, default=str)
+    
+    return json.dumps({'proxies': [], 'export_date': datetime.now().isoformat()})
+
+# ============================================================================
+# POINT D'ENTRÉE PRINCIPAL
+# ============================================================================
 
 def main():
     """Fonction principale de l'application"""
-    st.set_page_config(
-        page_title="Scraper Pro Dashboard",
-        page_icon="🕷️",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
     
-    # Vérification de l'authentification
-    if not require_auth():
+    # Vérification authentification
+    if not require_authentication():
         return
     
     # Navigation
-    current_page = sidebar_navigation()
+    current_page = render_sidebar()
     
-    # Affichage de la page sélectionnée
-    if current_page == "dashboard":
-        page_dashboard()
-    elif current_page == "jobs":
-        page_jobs()
-    elif current_page == "contacts":
-        page_contacts()
-    elif current_page == "proxies":
-        page_proxies()
-    elif current_page == "settings":
-        page_settings()
+    # Affichage de la page selon navigation
+    try:
+        if current_page == "dashboard":
+            page_dashboard()
+        elif current_page == "jobs":
+            page_jobs()
+        elif current_page == "contacts":
+            page_contacts()
+        elif current_page == "proxies":
+            page_proxies()
+        elif current_page == "sessions":
+            st.title("🗂️ Session Management")
+            st.info("Page Sessions en développement - Upload storage states, validation, etc.")
+        elif current_page == "analytics":
+            st.title("📈 Analytics")
+            st.info("Page Analytics en développement - Graphiques avancés, insights, etc.")
+        elif current_page == "settings":
+            st.title("⚙️ System Settings")  
+            st.info("Page Settings en développement - Configuration système, alertes, etc.")
+        elif current_page == "monitor":
+            st.title("🔧 System Monitor")
+            st.info("Page Monitoring en développement - Logs, métriques, health checks, etc.")
+        else:
+            st.error("Page non trouvée")
+    
+    except Exception as e:
+        st.error(f"Erreur lors du chargement de la page: {e}")
+        st.exception(e)
 
 if __name__ == "__main__":
     main()

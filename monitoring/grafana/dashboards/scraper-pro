@@ -1,0 +1,530 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Scraper Pro - Overview Dashboard",
+    "tags": ["scraper-pro", "overview", "production"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": [
+        "5s",
+        "10s", 
+        "30s",
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h"
+      ]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "instance",
+          "type": "query",
+          "query": "label_values(up, instance)",
+          "datasource": "Prometheus",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": null,
+          "multi": true
+        },
+        {
+          "name": "job",
+          "type": "query", 
+          "query": "label_values(up, job)",
+          "datasource": "Prometheus",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": null,
+          "multi": true
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "Prometheus",
+          "expr": "resets(process_start_time_seconds[1h]) > 0",
+          "iconColor": "green",
+          "enable": true
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up",
+            "legendFormat": "{{job}} - {{instance}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {"text": "DOWN", "color": "red"},
+                  "1": {"text": "UP", "color": "green"}
+                },
+                "type": "value"
+              }
+            ],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Jobs Statistics",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "scraper_jobs_total{status=\"pending\"}",
+            "legendFormat": "Pending",
+            "refId": "A"
+          },
+          {
+            "expr": "scraper_jobs_total{status=\"in_progress\"}",
+            "legendFormat": "Running", 
+            "refId": "B"
+          },
+          {
+            "expr": "rate(scraper_jobs_total{status=\"done\"}[5m])*300",
+            "legendFormat": "Completed (5m)",
+            "refId": "C"
+          },
+          {
+            "expr": "rate(scraper_jobs_total{status=\"failed\"}[5m])*300",
+            "legendFormat": "Failed (5m)",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "red", "value": 100}
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Failed (5m)"},
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {"mode": "fixed", "fixedColor": "red"}
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 12,
+          "x": 0,
+          "y": 4
+        }
+      },
+      {
+        "id": 3,
+        "title": "Contact Extraction",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(scraper_contacts_extracted_total[1h])",
+            "legendFormat": "Last Hour",
+            "refId": "A"
+          },
+          {
+            "expr": "increase(scraper_contacts_extracted_total[24h])",
+            "legendFormat": "Last 24h", 
+            "refId": "B"
+          },
+          {
+            "expr": "scraper_contacts_total",
+            "legendFormat": "Total Contacts",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 100},
+                {"color": "green", "value": 1000}
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 12,
+          "x": 12,
+          "y": 4
+        }
+      },
+      {
+        "id": 4,
+        "title": "Job Completion Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(scraper_jobs_total{status=\"done\"}[5m])",
+            "legendFormat": "Success Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(scraper_jobs_total{status=\"failed\"}[5m])",
+            "legendFormat": "Failure Rate",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "opacity"
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "short",
+            "min": 0
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Failure Rate"},
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {"mode": "fixed", "fixedColor": "red"}
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 5,
+        "title": "Proxy Health",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "scraper_proxies_active_total",
+            "legendFormat": "Active",
+            "refId": "A"
+          },
+          {
+            "expr": "scraper_proxies_inactive_total",
+            "legendFormat": "Inactive",
+            "refId": "B"
+          },
+          {
+            "expr": "scraper_proxies_failed_total",
+            "legendFormat": "Failed",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Failed"},
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {"mode": "fixed", "fixedColor": "red"}
+                }
+              ]
+            },
+            {
+              "matcher": {"id": "byName", "options": "Active"},
+              "properties": [
+                {
+                  "id": "color", 
+                  "value": {"mode": "fixed", "fixedColor": "green"}
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        }
+      },
+      {
+        "id": 6,
+        "title": "System Resources",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+            "legendFormat": "CPU Usage %",
+            "refId": "A"
+          },
+          {
+            "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+            "legendFormat": "Memory Usage %",
+            "refId": "B"
+          },
+          {
+            "expr": "(1 - (node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"})) * 100",
+            "legendFormat": "Disk Usage %",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "lineWidth": 1,
+              "fillOpacity": 20,
+              "gradientMode": "opacity"
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 90}
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 7,
+        "title": "Database Performance", 
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "scraper_database_connections_active",
+            "legendFormat": "Active Connections",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(scraper_database_queries_total[5m])",
+            "legendFormat": "Queries/sec",
+            "refId": "B"
+          },
+          {
+            "expr": "avg(scraper_database_query_duration_seconds)",
+            "legendFormat": "Avg Query Time (s)",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "lineWidth": 1,
+              "fillOpacity": 10
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "short",
+            "min": 0
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byRegexp", "options": "/Time/"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "s"
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 24
+        }
+      },
+      {
+        "id": 8,
+        "title": "Top Countries by Contacts",
+        "type": "barchart",
+        "targets": [
+          {
+            "expr": "topk(10, sum by(country) (increase(scraper_contacts_extracted_total[24h])))",
+            "legendFormat": "{{country}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "orientation": "horizontal"
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "short"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 24
+        }
+      },
+      {
+        "id": 9,
+        "title": "Worker Performance",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "scraper_worker_memory_usage_bytes / 1024 / 1024",
+            "legendFormat": "Memory (MB)",
+            "refId": "A"
+          },
+          {
+            "expr": "scraper_worker_cpu_usage_percent",
+            "legendFormat": "CPU %",
+            "refId": "B"
+          },
+          {
+            "expr": "scraper_worker_jobs_processing",
+            "legendFormat": "Jobs Processing",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "lineWidth": 1,
+              "fillOpacity": 10
+            },
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "short",
+            "min": 0
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byRegexp", "options": "/Memory/"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "decbytes"
+                }
+              ]
+            },
+            {
+              "matcher": {"id": "byRegexp", "options": "/CPU/"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "percent"
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 32
+        }
+      },
+      {
+        "id": 10,
+        "title": "Alerts Status",
+        "type": "logs",
+        "targets": [
+          {
+            "expr": "{job=\"alertmanager\"}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "showLabels": true,
+              "showTime": true,
+              "wrapLogMessage": true
+            }
+          }
+        },
+        "gridPos": {
+          "h": 6,
+          "w": 24,
+          "x": 0,
+          "y": 40
+        }
+      }
+    ]
+  },
+  "overwrite": true
+}

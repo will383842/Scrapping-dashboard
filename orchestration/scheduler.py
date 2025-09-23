@@ -24,9 +24,11 @@ logger = logging.getLogger(__name__)
 DB = dict(
     host=os.getenv("POSTGRES_HOST", "db"),
     port=int(os.getenv("POSTGRES_PORT", "5432")),
-    dbname=os.getenv("POSTGRES_DB", "scraper"),
-    user=os.getenv("POSTGRES_USER", "scraper"),
+    dbname=os.getenv("POSTGRES_DB", "scraper_pro"),
+    user=os.getenv("POSTGRES_USER", "scraper_admin"),
     password=os.getenv("POSTGRES_PASSWORD", "scraper"),
+    connect_timeout=10,
+    application_name='scraper_scheduler'
 )
 
 # Configuration avancée
@@ -44,9 +46,103 @@ class JobExecutionError(Exception):
     """Exception pour erreurs d'exécution de job"""
     pass
 
+class DatabaseManager:
+    """Gestionnaire de connexions DB robuste pour le scheduler"""
+    
+    def __init__(self, config: dict):
+        self.config = config
+        self._connection = None
+        self.last_connection_attempt = None
+        self.connection_failures = 0
+        
+    def get_connection(self) -> Optional[psycopg2.connection]:
+        """Obtient une connexion active, avec reconnection si nécessaire"""
+        # Éviter les tentatives de reconnection trop fréquentes
+        now = datetime.now()
+        if (self.last_connection_attempt and 
+            (now - self.last_connection_attempt).total_seconds() < 5 and 
+            self.connection_failures > 0):
+            return None
+        
+        if self._connection is None or self._connection.closed:
+            try:
+                self._connection = psycopg2.connect(**self.config)
+                self.connection_failures = 0
+                logger.info("Nouvelle connexion DB établie")
+            except psycopg2.Error as e:
+                self.last_connection_attempt = now
+                self.connection_failures += 1
+                logger.error(f"Erreur connexion DB (tentative {self.connection_failures}): {e}")
+                return None
+        
+        # Test de la connexion existante
+        try:
+            # Test simple et rapide
+            with self._connection.cursor() as cur:
+                cur.execute("SELECT 1")
+            return self._connection
+        except psycopg2.Error as e:
+            logger.warning(f"Connexion DB fermée ({e}), tentative de reconnection...")
+            try:
+                if self._connection:
+                    self._connection.close()
+                self._connection = psycopg2.connect(**self.config)
+                self.connection_failures = 0
+                logger.info("Reconnection DB réussie")
+                return self._connection
+            except psycopg2.Error as reconnect_error:
+                self.last_connection_attempt = now
+                self.connection_failures += 1
+                logger.error(f"Échec de reconnection DB: {reconnect_error}")
+                self._connection = None
+                return None
+    
+    def execute_query(self, query: str, params: tuple = None, fetch: str = 'all'):
+        """Exécution sécurisée de requêtes avec retry automatique"""
+        conn = self.get_connection()
+        if not conn:
+            raise DatabaseError("Connexion DB non disponible")
+        
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, params or ())
+                
+                if fetch == 'all':
+                    result = cur.fetchall()
+                elif fetch == 'one':
+                    result = cur.fetchone()
+                elif fetch == 'none':
+                    result = True
+                else:
+                    result = cur.fetchall()
+                
+                conn.commit()
+                return result
+                
+        except psycopg2.Error as e:
+            logger.error(f"Erreur requête DB: {e}")
+            try:
+                if conn and not conn.closed:
+                    conn.rollback()
+            except:
+                pass
+            
+            # Force reconnection pour la prochaine fois
+            self._connection = None
+            raise DatabaseError(f"Erreur DB: {e}")
+    
+    def close(self):
+        """Ferme la connexion proprement"""
+        if self._connection and not self._connection.closed:
+            try:
+                self._connection.close()
+            except:
+                pass
+        self._connection = None
+
 class ScrapingScheduler:
     def __init__(self):
-        self.conn: Optional[psycopg2.connection] = None
+        self.db_manager = DatabaseManager(DB)
         self.last_health_check = datetime.now()
         self.stats = {
             'jobs_processed': 0,
@@ -55,30 +151,15 @@ class ScrapingScheduler:
             'start_time': datetime.now()
         }
         
-    def get_db_connection(self) -> psycopg2.connection:
-        """Connexion DB robuste avec reconnection automatique"""
-        try:
-            if self.conn is None or self.conn.closed:
-                self.conn = psycopg2.connect(**DB, connect_timeout=10)
-                self.conn.autocommit = False
-                logger.info("Connexion base de données établie")
-            return self.conn
-        except psycopg2.Error as e:
-            logger.error(f"Erreur connexion DB: {e}")
-            raise DatabaseError(f"Impossible de se connecter à la DB: {e}")
-
     def apply_env_limits(self):
         """Application des limites d'environnement au démarrage"""
         try:
-            conn = self.get_db_connection()
             limit = os.getenv("JS_PAGES_LIMIT")
             if limit and limit.isdigit():
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO settings(key, value) VALUES('js_pages_limit', %s)
-                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                    """, (str(limit),))
-                    conn.commit()
+                self.db_manager.execute_query("""
+                    INSERT INTO settings(key, value) VALUES('js_pages_limit', %s)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                """, (str(limit),), fetch='none')
                 logger.info(f"JS_PAGES_LIMIT appliquée: {limit}")
         except Exception as e:
             logger.exception(f"Erreur application limites env: {e}")
@@ -86,11 +167,11 @@ class ScrapingScheduler:
     def is_scheduler_paused(self) -> bool:
         """Vérification si le scheduler est en pause"""
         try:
-            conn = self.get_db_connection()
-            with conn.cursor() as cur:
-                cur.execute("SELECT value FROM settings WHERE key = 'scheduler_paused'")
-                result = cur.fetchone()
-                return result and result[0].lower() == 'true'
+            result = self.db_manager.execute_query(
+                "SELECT value FROM settings WHERE key = 'scheduler_paused'", 
+                fetch='one'
+            )
+            return result and result['value'].lower() == 'true'
         except Exception as e:
             logger.warning(f"Impossible de vérifier pause status: {e}")
             return False
@@ -98,86 +179,73 @@ class ScrapingScheduler:
     def claim_next_job(self) -> Optional[Dict[str, Any]]:
         """Récupération du prochain job avec verrouillage optimiste"""
         try:
-            conn = self.get_db_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Récupération avec priorité et retry_count
-                sql = """
-                WITH available_jobs AS (
-                    SELECT id, url, use_js, theme, country_filter, lang_filter, 
-                           max_pages_per_domain, session_id, retry_count,
-                           COALESCE(priority, 10) as priority
-                    FROM queue 
-                    WHERE status = 'pending' 
-                      AND (retry_count IS NULL OR retry_count < %s)
-                      AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-                    ORDER BY priority DESC, retry_count ASC, id ASC
-                    LIMIT 1
-                    FOR UPDATE SKIP LOCKED
-                )
-                UPDATE queue q SET 
-                    status = 'in_progress',
-                    updated_at = NOW(),
-                    retry_count = COALESCE(retry_count, 0)
-                FROM available_jobs aj
-                WHERE q.id = aj.id
-                RETURNING q.id, aj.url, aj.use_js, aj.theme, aj.country_filter, 
-                         aj.lang_filter, aj.max_pages_per_domain, aj.session_id, aj.retry_count;
-                """
-                cur.execute(sql, (MAX_RETRIES,))
-                job = cur.fetchone()
-                conn.commit()
+            # Récupération avec priorité et retry_count
+            sql = """
+            WITH available_jobs AS (
+                SELECT id, url, use_js, theme, country_filter, lang_filter, 
+                       max_pages_per_domain, session_id, retry_count,
+                       COALESCE(priority, 10) as priority
+                FROM queue 
+                WHERE status = 'pending' 
+                  AND (retry_count IS NULL OR retry_count < %s)
+                  AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+                ORDER BY priority DESC, retry_count ASC, id ASC
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE queue q SET 
+                status = 'in_progress',
+                updated_at = NOW(),
+                retry_count = COALESCE(retry_count, 0)
+            FROM available_jobs aj
+            WHERE q.id = aj.id
+            RETURNING q.id, aj.url, aj.use_js, aj.theme, aj.country_filter, 
+                     aj.lang_filter, aj.max_pages_per_domain, aj.session_id, aj.retry_count;
+            """
+            
+            job = self.db_manager.execute_query(sql, (MAX_RETRIES,), fetch='one')
+            
+            if job:
+                logger.info(f"Job récupéré: ID={job['id']}, URL={job['url']}, Retry={job.get('retry_count', 0)}")
+            return dict(job) if job else None
                 
-                if job:
-                    logger.info(f"Job récupéré: ID={job['id']}, URL={job['url']}, Retry={job.get('retry_count', 0)}")
-                return dict(job) if job else None
-                
-        except psycopg2.Error as e:
+        except DatabaseError as e:
             logger.error(f"Erreur récupération job: {e}")
-            if self.conn:
-                try:
-                    self.conn.rollback()
-                except:
-                    pass
+            raise
+        except Exception as e:
+            logger.error(f"Erreur inattendue récupération job: {e}")
             raise DatabaseError(f"Erreur claim job: {e}")
 
     def update_job_status(self, job_id: int, status: str, error_msg: str = None, retry_count: int = None):
         """Mise à jour du statut d'un job avec gestion d'erreurs"""
         try:
-            conn = self.get_db_connection()
-            with conn.cursor() as cur:
-                if status == 'failed' and retry_count is not None and retry_count < MAX_RETRIES:
-                    # Planifier un retry avec backoff exponentiel
-                    next_retry = datetime.now() + timedelta(seconds=int(RETRY_BACKOFF_BASE ** retry_count * 60))
-                    cur.execute("""
-                        UPDATE queue SET 
-                            status = 'pending',
-                            last_error = LEFT(%s, 1000),
-                            retry_count = %s,
-                            next_retry_at = %s,
-                            updated_at = NOW()
-                        WHERE id = %s
-                    """, (error_msg, retry_count + 1, next_retry, job_id))
-                    logger.info(f"Job {job_id} programmé pour retry #{retry_count + 1} à {next_retry}")
-                else:
-                    # Statut final
-                    cur.execute("""
-                        UPDATE queue SET 
-                            status = %s,
-                            last_error = LEFT(%s, 1000),
-                            updated_at = NOW(),
-                            last_run_at = CASE WHEN %s = 'done' THEN NOW() ELSE last_run_at END
-                        WHERE id = %s
-                    """, (status, error_msg, status, job_id))
-                    
-                conn.commit()
+            if status == 'failed' and retry_count is not None and retry_count < MAX_RETRIES:
+                # Planifier un retry avec backoff exponentiel
+                next_retry = datetime.now() + timedelta(seconds=int(RETRY_BACKOFF_BASE ** retry_count * 60))
+                self.db_manager.execute_query("""
+                    UPDATE queue SET 
+                        status = 'pending',
+                        last_error = LEFT(%s, 1000),
+                        retry_count = %s,
+                        next_retry_at = %s,
+                        updated_at = NOW()
+                    WHERE id = %s
+                """, (error_msg, retry_count + 1, next_retry, job_id), fetch='none')
+                logger.info(f"Job {job_id} programmé pour retry #{retry_count + 1} à {next_retry}")
+            else:
+                # Statut final
+                self.db_manager.execute_query("""
+                    UPDATE queue SET 
+                        status = %s,
+                        last_error = LEFT(%s, 1000),
+                        updated_at = NOW(),
+                        last_run_at = CASE WHEN %s = 'done' THEN NOW() ELSE last_run_at END
+                    WHERE id = %s
+                """, (status, error_msg, status, job_id), fetch='none')
                 
-        except psycopg2.Error as e:
+        except DatabaseError as e:
             logger.error(f"Erreur mise à jour job {job_id}: {e}")
-            if self.conn:
-                try:
-                    self.conn.rollback()
-                except:
-                    pass
+            raise
 
     def execute_spider(self, job: Dict[str, Any]) -> tuple[int, str, str]:
         """Exécution sécurisée d'un spider avec timeout"""
@@ -256,45 +324,41 @@ class ScrapingScheduler:
             error_msg = f"Erreur traitement job: {e}"
             logger.exception(error_msg)
             
-            if retry_count < MAX_RETRIES:
-                self.update_job_status(job_id, 'failed', error_msg, retry_count)
-                self.stats['jobs_retried'] += 1
-            else:
-                self.update_job_status(job_id, 'failed', f"Max retries exceeded: {error_msg}")
-                self.stats['jobs_failed'] += 1
+            try:
+                if retry_count < MAX_RETRIES:
+                    self.update_job_status(job_id, 'failed', error_msg, retry_count)
+                    self.stats['jobs_retried'] += 1
+                else:
+                    self.update_job_status(job_id, 'failed', f"Max retries exceeded: {error_msg}")
+                    self.stats['jobs_failed'] += 1
+            except Exception as update_error:
+                logger.error(f"Impossible de mettre à jour le statut du job {job_id}: {update_error}")
             
             return False
 
     def perform_health_check(self):
         """Vérifications de santé système"""
         try:
-            conn = self.get_db_connection()
-            with conn.cursor() as cur:
-                # Test connectivité DB
-                cur.execute("SELECT 1")
-                
-                # Mise à jour statistiques
-                cur.execute("""
-                    INSERT INTO settings (key, value) VALUES ('scheduler_last_heartbeat', %s)
-                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                """, (datetime.now().isoformat(),))
-                
-                # Stats performance
-                uptime = datetime.now() - self.stats['start_time']
-                stats_json = json.dumps({
-                    'jobs_processed': self.stats['jobs_processed'],
-                    'jobs_failed': self.stats['jobs_failed'], 
-                    'jobs_retried': self.stats['jobs_retried'],
-                    'uptime_minutes': int(uptime.total_seconds() / 60)
-                })
-                
-                cur.execute("""
-                    INSERT INTO settings (key, value) VALUES ('scheduler_stats', %s)
-                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                """, (stats_json,))
-                
-                conn.commit()
-                
+            # Mise à jour heartbeat
+            self.db_manager.execute_query("""
+                INSERT INTO settings (key, value) VALUES ('scheduler_last_heartbeat', %s)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+            """, (datetime.now().isoformat(),), fetch='none')
+            
+            # Stats performance
+            uptime = datetime.now() - self.stats['start_time']
+            stats_json = json.dumps({
+                'jobs_processed': self.stats['jobs_processed'],
+                'jobs_failed': self.stats['jobs_failed'], 
+                'jobs_retried': self.stats['jobs_retried'],
+                'uptime_minutes': int(uptime.total_seconds() / 60)
+            })
+            
+            self.db_manager.execute_query("""
+                INSERT INTO settings (key, value) VALUES ('scheduler_stats', %s)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+            """, (stats_json,), fetch='none')
+            
             logger.debug("Health check OK")
             
         except Exception as e:
@@ -303,32 +367,30 @@ class ScrapingScheduler:
     def cleanup_old_jobs(self):
         """Nettoyage des anciens jobs terminés"""
         try:
-            conn = self.get_db_connection()
-            with conn.cursor() as cur:
-                # Suppression des jobs terminés depuis plus de 7 jours
-                cur.execute("""
-                    DELETE FROM queue 
-                    WHERE status IN ('done', 'failed') 
-                      AND retry_count >= %s
-                      AND updated_at < NOW() - INTERVAL '7 days'
-                """, (MAX_RETRIES,))
-                
-                deleted = cur.rowcount
-                if deleted > 0:
-                    logger.info(f"Nettoyage: {deleted} anciens jobs supprimés")
+            # Suppression des jobs terminés depuis plus de 7 jours
+            result = self.db_manager.execute_query("""
+                UPDATE queue SET deleted_at = NOW()
+                WHERE status IN ('done', 'failed') 
+                  AND retry_count >= %s
+                  AND updated_at < NOW() - INTERVAL '7 days'
+                  AND deleted_at IS NULL
+            """, (MAX_RETRIES,), fetch='none')
+            
+            # Note: nous ne pouvons pas obtenir le rowcount avec cette approche
+            # mais l'opération sera loggée si elle échoue
+            logger.info("Nettoyage des anciens jobs effectué")
                     
-                conn.commit()
-                
         except Exception as e:
             logger.warning(f"Erreur nettoyage: {e}")
 
     def run(self):
-        """Boucle principale du scheduler"""
+        """Boucle principale du scheduler avec gestion d'erreur robuste"""
         logger.info("🚀 Scraping Scheduler démarré")
         logger.info(f"Configuration: MAX_RETRIES={MAX_RETRIES}, POLL_INTERVAL={POLL_INTERVAL_SEC}s, TIMEOUT={JOB_TIMEOUT_SEC}s")
         
         self.apply_env_limits()
-        consecutive_errors = 0
+        consecutive_db_errors = 0
+        max_consecutive_errors = 10
         
         while True:
             try:
@@ -353,52 +415,52 @@ class ScrapingScheduler:
                 if job is None:
                     # Pas de job disponible
                     time.sleep(POLL_INTERVAL_SEC)
-                    consecutive_errors = 0  # Reset compteur erreurs
+                    consecutive_db_errors = 0  # Reset compteur erreurs DB
                     continue
                 
                 # Traitement du job
                 success = self.process_job(job)
-                consecutive_errors = 0  # Reset en cas de succès
+                consecutive_db_errors = 0  # Reset en cas de succès
                 
                 # Petit délai entre jobs pour éviter la surcharge
                 time.sleep(0.5)
                 
             except DatabaseError as e:
-                consecutive_errors += 1
-                logger.error(f"Erreur DB (tentative {consecutive_errors}): {e}")
+                consecutive_db_errors += 1
+                logger.error(f"Erreur DB (tentative {consecutive_db_errors}): {e}")
                 
                 # Reconnection progressive
-                wait_time = min(consecutive_errors * 2, 30)
+                wait_time = min(consecutive_db_errors * 2, 30)
                 logger.info(f"Attente {wait_time}s avant reconnection...")
                 time.sleep(wait_time)
                 
-                # Fermeture connexion pour forcer reconnection
-                if self.conn and not self.conn.closed:
-                    try:
-                        self.conn.close()
-                    except:
-                        pass
-                self.conn = None
+                # Force fermeture connexion pour reconnection propre
+                self.db_manager.close()
                 
                 # Arrêt si trop d'erreurs consécutives
-                if consecutive_errors >= 10:
+                if consecutive_db_errors >= max_consecutive_errors:
                     logger.critical("Trop d'erreurs DB consécutives, arrêt du scheduler")
                     break
                     
             except Exception as e:
-                consecutive_errors += 1
-                logger.exception(f"Erreur inattendue (tentative {consecutive_errors}): {e}")
+                logger.exception(f"Erreur inattendue: {e}")
                 
                 # Pause progressive en cas d'erreurs
-                wait_time = min(consecutive_errors, 10)
-                time.sleep(wait_time)
+                time.sleep(min(5, POLL_INTERVAL_SEC))
                 
-                # Arrêt si trop d'erreurs consécutives  
-                if consecutive_errors >= 20:
-                    logger.critical("Trop d'erreurs consécutives, arrêt du scheduler")
-                    break
+                # Force fermeture connexion en cas d'erreur grave
+                try:
+                    self.db_manager.close()
+                except:
+                    pass
 
         logger.info("🛑 Scheduler arrêté")
+        
+        # Nettoyage final
+        try:
+            self.db_manager.close()
+        except:
+            pass
 
 def main():
     """Point d'entrée principal"""

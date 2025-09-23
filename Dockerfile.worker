@@ -1,38 +1,71 @@
 ﻿FROM mcr.microsoft.com/playwright/python:v1.47.0-jammy
 
 LABEL maintainer="Scraper Pro Team" \
-      version="2.0" \
-      description="Scraper Pro Worker"
+    version="2.0" \
+    description="Scraper Pro Worker - Fixed Version"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     PLAYWRIGHT_BROWSERS_PATH=/ms/playwright
 
+# Création de l'utilisateur scraper
 RUN groupadd -r scraper && useradd -r -g scraper -d /app -s /bin/bash scraper
 
+# Installation des dépendances système
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl wget build-essential gcc libpq-dev && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    curl \
+    wget \
+    build-essential \
+    gcc \
+    libpq-dev \
+    postgresql-client \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
+# Mise à jour de pip
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
+# Création du répertoire de travail
 WORKDIR /app
 
+# Copie et installation des requirements
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Installation spécifique des navigateurs Playwright
+RUN python -m playwright install chromium --with-deps
+
+# Copie du code source
 COPY scraper/ /app/scraper/
 COPY orchestration/ /app/orchestration/
 COPY config/ /app/config/
 
-RUN mkdir -p /app/{logs,sessions,cache} && \
+# Création des répertoires nécessaires
+RUN mkdir -p /app/{logs,sessions,cache,temp} && \
     chown -R scraper:scraper /app && \
     chmod -R 755 /app
 
+# Changement vers l'utilisateur scraper
 USER scraper
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD python -c "import psycopg2; psycopg2.connect(host='db', port=5432, database='scraper_pro', user='scraper_admin', password='Scr4p3r_DB_2024!_P0stgr3s_S3cur3').close()" || exit 1
+# Health check amélioré
+HEALTHCHECK --interval=60s --timeout=20s --start-period=120s --retries=3 \
+    CMD python -c "import psycopg2, os, sys; \
+    try: \
+    conn = psycopg2.connect( \
+    host=os.environ.get('POSTGRES_HOST', 'db'), \
+    port=int(os.environ.get('POSTGRES_PORT', '5432')), \
+    database=os.environ.get('POSTGRES_DB', 'scraper_pro'), \
+    user=os.environ.get('POSTGRES_USER', 'scraper_admin'), \
+    password=os.environ.get('POSTGRES_PASSWORD', ''), \
+    connect_timeout=15 \
+    ); \
+    conn.close(); \
+    sys.exit(0) \
+    except Exception as e: \
+    print(f'Health check failed: {e}'); \
+    sys.exit(1)"
 
+# Point d'entrée
 CMD ["python", "-m", "orchestration.scheduler"]

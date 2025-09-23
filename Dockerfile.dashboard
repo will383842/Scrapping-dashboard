@@ -2,37 +2,71 @@ FROM python:3.11-slim
 
 LABEL maintainer="Scraper Pro Team" \
       version="2.0" \
-      description="Scraper Pro Dashboard"
+      description="Scraper Pro Dashboard - Fixed Version"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
+# Création de l'utilisateur dashboard
 RUN groupadd -r dashboard && useradd -r -g dashboard -d /app -s /bin/bash dashboard
 
+# Installation des dépendances système
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential gcc curl && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    build-essential \
+    gcc \
+    libpq-dev \
+    postgresql-client \
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
+# Mise à jour de pip
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
+# Création du répertoire de travail
 WORKDIR /app
 
+# Copie et installation des requirements
 COPY requirements-dashboard.txt /app/
 RUN pip install --no-cache-dir -r requirements-dashboard.txt
 
+# Copie du code source
 COPY dashboard/ /app/dashboard/
 COPY config/ /app/config/
 
-RUN mkdir -p /app/{logs,sessions,backups,cache} && \
+# Création des répertoires nécessaires avec permissions
+RUN mkdir -p /app/{logs,sessions,backups,cache,temp} && \
     chown -R dashboard:dashboard /app && \
     chmod -R 755 /app
 
+# Changement vers l'utilisateur dashboard
 USER dashboard
 
+# Exposition du port
 EXPOSE 8501
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8501/health || exit 1
+# Health check amélioré pour Streamlit
+HEALTHCHECK --interval=60s --timeout=20s --start-period=120s --retries=3 \
+    CMD curl -f --max-time 15 http://localhost:8501/_stcore/health || \
+        python -c "import requests, sys; \
+        try: \
+            r = requests.get('http://localhost:8501/_stcore/health', timeout=15); \
+            sys.exit(0 if r.status_code == 200 else 1) \
+        except Exception as e: \
+            print(f'Dashboard health check failed: {e}'); \
+            sys.exit(1)"
 
-CMD ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Configuration Streamlit
+ENV STREAMLIT_SERVER_PORT=8501 \
+    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
+    STREAMLIT_SERVER_HEADLESS=true \
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
+    STREAMLIT_SERVER_ENABLE_CORS=false
+
+# Point d'entrée
+CMD ["streamlit", "run", "dashboard/app.py", \
+     "--server.port=8501", \
+     "--server.address=0.0.0.0", \
+     "--server.headless=true", \
+     "--browser.gatherUsageStats=false"]

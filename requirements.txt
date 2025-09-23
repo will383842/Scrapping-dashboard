@@ -1,0 +1,12 @@
+scrapy==2.11.1
+scrapy-playwright==0.0.36
+playwright==1.47.0
+pandas==2.2.2
+psycopg2-binary==2.9.9
+streamlit==1.37.1
+python-slugify==8.0.4
+tldextract==5.1.2
+phonenumbers==8.13.45
+requests==2.32.3
+PyYAML==6.0.2
+xlsxwriter==3.2.0

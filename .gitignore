@@ -1,0 +1,32 @@
+﻿# Envs & secrets
+.env
+*.env
+!/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+pip-wheel-metadata/
+
+# Scrapy
+.scrapy/
+
+# Playwright
+playwright-report/
+test-results/
+playwright/.cache/
+
+# Node (au cas où)
+node_modules/
+
+# Docker/compose
+*.log
+docker-compose.override.yml
+**/.DS_Store
+
+# IDE
+.vscode/
+.idea/

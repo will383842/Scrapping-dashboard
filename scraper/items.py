@@ -1,0 +1,15 @@
+import scrapy
+class ContactItem(scrapy.Item):
+    name = scrapy.Field()
+    org = scrapy.Field()
+    email = scrapy.Field()
+    languages = scrapy.Field()
+    phone = scrapy.Field()
+    country = scrapy.Field()
+    url = scrapy.Field()
+    theme = scrapy.Field()
+    source = scrapy.Field()
+    page_lang = scrapy.Field()
+    raw_text = scrapy.Field()
+    query_id = scrapy.Field()
+    seed_url = scrapy.Field()

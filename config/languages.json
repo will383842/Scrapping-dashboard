@@ -1,0 +1,29 @@
+{
+  "languages": [
+    "fr",
+    "en"
+  ],
+  "themes": [
+    "lawyers"
+  ],
+  "language_markers": {
+    "fr": [
+      "français"
+    ],
+    "en": [
+      "english"
+    ]
+  },
+  "keywords": {
+    "en": {
+      "lawyers": [
+        "lawyer"
+      ]
+    },
+    "fr": {
+      "lawyers": [
+        "avocat"
+      ]
+    }
+  }
+}

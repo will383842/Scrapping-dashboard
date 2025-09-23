@@ -1,0 +1,16 @@
+﻿FROM mcr.microsoft.com/playwright/python:v1.47.0-jammy
+
+WORKDIR /app
+
+# Dépendances Python
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Code
+COPY scraper /app/scraper
+COPY orchestration /app/orchestration
+
+ENV PYTHONUNBUFFERED=1
+
+# Navigateurs déjà préinstallés
+CMD ["python", "-m", "orchestration.scheduler"]

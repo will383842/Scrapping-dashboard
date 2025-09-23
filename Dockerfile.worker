@@ -1,210 +1,38 @@
-﻿# ============================================================================
-# DOCKERFILE WORKER - PRODUCTION OPTIMIZED
-# Version: 2.0 Production-Ready
-# Base: Official Playwright Python image with pre-installed browsers
-# ============================================================================
+﻿FROM mcr.microsoft.com/playwright/python:v1.47.0-jammy
 
-# Multi-stage build pour optimisation de taille
-FROM mcr.microsoft.com/playwright/python:v1.47.0-jammy AS base
+LABEL maintainer="Scraper Pro Team" \
+      version="2.0" \
+      description="Scraper Pro Worker"
 
-# Métadonnées
-LABEL maintainer="Scraper Pro Team <team@scraper-pro.com>" \
-    version="2.0" \
-    description="Scraper Pro Worker - Production Ready" \
-    org.opencontainers.image.title="Scraper Pro Worker" \
-    org.opencontainers.image.description="High-performance web scraping worker with Scrapy and Playwright" \
-    org.opencontainers.image.version="2.0" \
-    org.opencontainers.image.vendor="Scraper Pro"
-
-# Arguments de build
-ARG PYTHON_VERSION=3.11
-ARG SCRAPY_VERSION=2.11.2
-ARG PLAYWRIGHT_VERSION=1.47.0
-ARG BUILD_DATE
-ARG VCS_REF
-
-# Variables d'environnement pour optimisation
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONIOENCODING=utf-8 \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    DEBIAN_FRONTEND=noninteractive \
-    # Playwright optimizations
-    PLAYWRIGHT_BROWSERS_PATH=/ms/playwright \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    # Python optimizations
     PYTHONPATH=/app \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    # Scrapy settings
-    SCRAPY_SETTINGS_MODULE=scraper.settings \
-    # Worker specific
-    WORKER_CONCURRENT_ITEMS=100 \
-    WORKER_MEMORY_LIMIT=2048
+    PLAYWRIGHT_BROWSERS_PATH=/ms/playwright
 
-# Création utilisateur non-root pour sécurité
 RUN groupadd -r scraper && useradd -r -g scraper -d /app -s /bin/bash scraper
 
-# Installation des dépendances système optimisées
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Essentials
-    curl \
-    wget \
-    gnupg2 \
-    ca-certificates \
-    # Build tools
-    build-essential \
-    gcc \
-    g++ \
-    # Libraries for Python packages
-    libpq-dev \
-    libxml2-dev \
-    libxslt1-dev \
-    libffi-dev \
-    libssl-dev \
-    zlib1g-dev \
-    libjpeg-dev \
-    libpng-dev \
-    # Network tools
-    net-tools \
-    netcat \
-    # Process management
-    supervisor \
-    # Monitoring
-    htop \
-    procps \
-    # Cleanup
-    && apt-get autoremove -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /tmp/* /var/tmp/*
+    curl wget build-essential gcc libpq-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# ============================================================================
-# STAGE 2: Python Dependencies Installation
-# ============================================================================
-FROM base AS deps
-
-# Mise à jour pip et installation des outils de build
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Copie des requirements pour optimisation du cache Docker
-COPY requirements.txt /tmp/requirements.txt
-
-# Installation des dépendances Python avec optimisations
-RUN pip install --no-cache-dir --no-deps -r /tmp/requirements.txt && \
-    # Installation des dépendances manquantes
-    pip install --no-cache-dir \
-    # Core dependencies
-    scrapy==${SCRAPY_VERSION} \
-    scrapy-playwright==0.0.36 \
-    playwright==${PLAYWRIGHT_VERSION} \
-    # Database
-    psycopg2-binary==2.9.9 \
-    sqlalchemy==2.0.23 \
-    # Data processing
-    pandas==2.1.4 \
-    numpy==1.25.2 \
-    # HTTP and parsing
-    requests==2.31.0 \
-    lxml==4.9.3 \
-    beautifulsoup4==4.12.2 \
-    # Utilities
-    python-dotenv==1.0.0 \
-    pyyaml==6.0.1 \
-    python-slugify==8.0.1 \
-    tldextract==5.1.1 \
-    phonenumbers==8.13.45 \
-    # Monitoring
-    prometheus-client==0.19.0 \
-    # Logging
-    structlog==23.2.0 \
-    # Performance
-    uvloop==0.19.0 \
-    # Security
-    cryptography==41.0.8 \
-    && \
-    # Nettoyage cache pip
-    pip cache purge
-
-# ============================================================================
-# STAGE 3: Application Setup
-# ============================================================================
-FROM deps AS application
-
-# Création de la structure de dossiers
 WORKDIR /app
 
-# Copie des fichiers de configuration d'abord (pour cache Docker)
-COPY config/ /app/config/
 COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copie du code source
 COPY scraper/ /app/scraper/
 COPY orchestration/ /app/orchestration/
+COPY config/ /app/config/
 
-# Création des dossiers nécessaires avec permissions
-RUN mkdir -p /app/{logs,sessions,tmp,cache} && \
-    # Configuration des permissions
+RUN mkdir -p /app/{logs,sessions,cache} && \
     chown -R scraper:scraper /app && \
-    chmod -R 755 /app && \
-    # Dossiers spéciaux avec permissions write
-    chmod -R 777 /app/logs /app/sessions /app/tmp /app/cache
+    chmod -R 755 /app
 
-# ============================================================================
-# STAGE 4: Runtime Configuration
-# ============================================================================
-FROM application AS runtime
-
-# Installation des browsers Playwright (fait dans l'image de base mais vérification)
-RUN python -m playwright install-deps && \
-    echo "Browsers already installed in base image"
-
-# Configuration Supervisor pour process management
-COPY docker/supervisor/worker.conf /etc/supervisor/conf.d/worker.conf
-
-# Script de démarrage avec health checks
-COPY docker/scripts/worker-entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
-# Configuration logging
-COPY docker/logging/worker-logging.conf /app/logging.conf
-
-# Script de health check
-COPY docker/health/worker-healthcheck.py /app/healthcheck.py
-RUN chmod +x /app/healthcheck.py
-
-# Configuration des volumes
-VOLUME ["/app/logs", "/app/sessions", "/app/cache"]
-
-# Exposition des ports pour monitoring
-EXPOSE 9090
-
-# Configuration utilisateur final
 USER scraper
 
-# Variables d'environnement runtime
-ENV WORKER_MODE=production \
-    LOG_LEVEL=INFO \
-    METRICS_PORT=9090 \
-    HEALTH_CHECK_INTERVAL=30
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD python -c "import psycopg2; psycopg2.connect(host='db', port=5432, database='scraper_pro', user='scraper_admin', password='Scr4p3r_DB_2024!_P0stgr3s_S3cur3').close()" || exit 1
 
-# Health check configuration
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python /app/healthcheck.py || exit 1
-
-# Point d'entrée avec monitoring
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-
-# Commande par défaut
 CMD ["python", "-m", "orchestration.scheduler"]
-
-# ============================================================================
-# BUILD METADATA
-# ============================================================================
-LABEL build.date="${BUILD_DATE}" \
-    build.vcs-ref="${VCS_REF}" \
-    build.dockerfile="Dockerfile.worker" \
-    build.python-version="${PYTHON_VERSION}" \
-    build.scrapy-version="${SCRAPY_VERSION}" \
-    build.playwright-version="${PLAYWRIGHT_VERSION}"

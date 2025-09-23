@@ -1,8 +1,38 @@
 FROM python:3.11-slim
+
+LABEL maintainer="Scraper Pro Team" \
+      version="2.0" \
+      description="Scraper Pro Dashboard"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
+
+RUN groupadd -r dashboard && useradd -r -g dashboard -d /app -s /bin/bash dashboard
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential gcc curl && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
 WORKDIR /app
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-COPY dashboard /app/dashboard
-COPY config /app/config
+
+COPY requirements-dashboard.txt /app/
+RUN pip install --no-cache-dir -r requirements-dashboard.txt
+
+COPY dashboard/ /app/dashboard/
+COPY config/ /app/config/
+
+RUN mkdir -p /app/{logs,sessions,backups,cache} && \
+    chown -R dashboard:dashboard /app && \
+    chmod -R 755 /app
+
+USER dashboard
+
 EXPOSE 8501
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8501/health || exit 1
+
 CMD ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]

@@ -1,93 +1,40 @@
-# ============================================================================
-# REQUIREMENTS DASHBOARD - PRODUCTION OPTIMIZED
-# Version: 2.0 Production-Ready
-# Description: Dépendances Python optimisées pour le dashboard Streamlit
-# ============================================================================
-
-# Core Streamlit Framework
 streamlit==1.38.0
 streamlit-elements==0.1.*
 streamlit-option-menu==0.3.6
 streamlit-aggrid==0.3.4
 streamlit-authenticator==0.2.3
 
-# Database Connectivity
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.23
-pg8000==1.30.3
 
-# Data Processing & Analysis
 pandas==2.1.4
 numpy==1.25.2
-polars==0.20.2
 
-# Visualization & Plotting
 plotly==5.17.0
 matplotlib==3.8.2
 seaborn==0.13.0
-altair==5.1.2
-bokeh==3.3.1
 
-# Export Functionality
 openpyxl==3.1.2
 xlsxwriter==3.2.0
 reportlab==4.0.7
-fpdf2==2.7.6
-python-docx==1.1.0
 
-# HTTP & Web
 requests==2.31.0
 urllib3==2.1.0
-httpx==0.25.2
-aiohttp==3.9.1
 
-# Utilities & Helpers
 python-dotenv==1.0.0
 pyyaml==6.0.1
 python-slugify==8.0.1
 python-dateutil==2.8.2
-pytz==2023.3
-validators==0.22.0
 click==8.1.7
 rich==13.7.0
 
-# Caching & Performance
+cryptography==42.0.8
 cachetools==5.3.2
-diskcache==5.6.3
-redis==5.0.1
-hiredis==2.2.3
-
-# Image Processing
 pillow==10.1.0
-opencv-python-headless==4.8.1.78
 
-# Security & Authentication
-cryptography==41.0.8
-bcrypt==4.1.2
-passlib==1.7.4
-python-jose==3.3.0
-pyjwt==2.8.0
-
-# Monitoring & Metrics
 prometheus-client==0.19.0
 psutil==5.9.6
 structlog==23.2.0
 
-# File Processing
-chardet==5.2.0
-python-magic==0.4.27
-
-# Development & Debugging
-watchdog==3.0.0
-
-# Email Support (for alerts)
-smtplib2==0.2.1
 email-validator==2.1.0
-
-# API Integration
-fastapi==0.104.1
-uvicorn==0.24.0
-
-# Testing (optional for production)
 pytest==7.4.3
-pytest-asyncio==0.21.1

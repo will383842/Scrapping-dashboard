@@ -1,7 +1,15 @@
+﻿# Multilang Scraper (Prod)
+Stack Docker : Streamlit dashboard + worker Scrapy/Playwright + Postgres.
 
+## Démarrage
+1. Copier `.env.example` vers `.env` et remplacer les valeurs.
+2. `docker compose up -d`
+3. Dashboard : http://localhost:8501
 
-## Production notes
-- Database is not exposed to the internet in `docker-compose.yml`.
-- Dashboard requires `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`.
-- Set `JS_PAGES_LIMIT` to cap Playwright usage; it is synced on scheduler boot.
-- Consider reverse proxy (Caddy/Traefik) for TLS and network ACLs.
+## Dev rapide
+- `docker compose logs -f worker`
+- `docker compose logs -f db`
+
+## Déploiement
+- Les secrets restent dans `.env` (non versionné).
+- Le schéma DB est dans `db/init.sql`.

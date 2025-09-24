@@ -3,17 +3,22 @@
 
 import os
 import json
-import psycopg2
+import time
+import re
+import io
+from datetime import datetime, timedelta
+from typing import Optional, Dict, List
+from contextlib import contextmanager
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+
+# Base de données avec pool de connexions
+import psycopg2
+import psycopg2.pool
 from psycopg2.extras import RealDictCursor
-import io
-import time
-import re
-from typing import Optional, Dict, List
 
 # ============================================================================
 # CONFIGURATION MULTILINGUE
@@ -116,7 +121,7 @@ TRANSLATIONS = {
 }
 
 # ============================================================================
-# CONFIGURATION STREAMLIT SIMPLIFIÉE
+# CONFIGURATION STREAMLIT
 # ============================================================================
 
 st.set_page_config(
@@ -126,10 +131,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS SIMPLIFIÉ ET LISIBLE
+# CSS amélioré
 st.markdown("""
 <style>
-    /* Variables pour couleurs cohérentes */
     :root {
         --primary-color: #2E7BF6;
         --success-color: #28a745;
@@ -140,13 +144,11 @@ st.markdown("""
         --border-color: #dee2e6;
     }
     
-    /* Interface propre et lisible */
     .main .block-container {
         padding: 1rem;
         max-width: 1200px;
     }
     
-    /* Métriques avec couleurs claires */
     [data-testid="metric-container"] {
         background: white;
         border: 1px solid var(--border-color);
@@ -161,7 +163,6 @@ st.markdown("""
         font-weight: bold;
     }
     
-    /* Boutons d'action proéminents */
     .stButton > button[kind="primary"] {
         background-color: var(--success-color);
         color: white;
@@ -177,7 +178,6 @@ st.markdown("""
         transform: translateY(-1px);
     }
     
-    /* Alertes visibles */
     .stAlert {
         border-radius: 6px;
         border: 1px solid;
@@ -185,7 +185,6 @@ st.markdown("""
         margin: 1rem 0;
     }
     
-    /* Formulaires lisibles */
     .stTextInput input, .stSelectbox select, .stNumberInput input {
         border: 2px solid var(--border-color);
         border-radius: 6px;
@@ -199,19 +198,11 @@ st.markdown("""
         box-shadow: 0 0 0 2px rgba(46, 123, 246, 0.2);
     }
     
-    /* Sidebar propre */
-    .css-1d391kg {
-        background-color: var(--light-color);
-        border-right: 1px solid var(--border-color);
-    }
-    
-    /* Tables lisibles */
     .dataframe {
         border: 1px solid var(--border-color);
         border-radius: 6px;
     }
     
-    /* Messages d'erreur visibles */
     .stError {
         background-color: #f8d7da;
         color: #721c24;
@@ -233,6 +224,98 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
+# GESTION BASE DE DONNÉES ROBUSTE
+# ============================================================================
+
+# Configuration de la base de données
+DB_CONFIG = {
+    'host': os.getenv("POSTGRES_HOST", "db"),
+    'port': int(os.getenv("POSTGRES_PORT", "5432")),
+    'dbname': os.getenv("POSTGRES_DB", "scraper_pro"),
+    'user': os.getenv("POSTGRES_USER", "scraper_admin"),
+    'password': os.getenv("POSTGRES_PASSWORD", "scraper"),
+    'connect_timeout': int(os.getenv("POSTGRES_CONNECT_TIMEOUT", "30")),
+    'application_name': 'dashboard_streamlit'
+}
+
+# Pool de connexions global
+_db_pool = None
+
+@st.cache_resource
+def get_db_pool():
+    """Crée et retourne le pool de connexions global"""
+    global _db_pool
+    if _db_pool is None:
+        try:
+            _db_pool = psycopg2.pool.SimpleConnectionPool(
+                minconn=1,
+                maxconn=int(os.getenv("CONNECTION_POOL_SIZE", "10")),
+                **DB_CONFIG
+            )
+        except Exception as e:
+            st.error(f"Impossible de créer le pool DB: {e}")
+            return None
+    return _db_pool
+
+@contextmanager
+def get_db_connection():
+    """Context manager pour connexions DB avec pool"""
+    pool = get_db_pool()
+    if not pool:
+        raise Exception("Pool DB non disponible")
+    
+    conn = None
+    try:
+        conn = pool.getconn()
+        if conn:
+            yield conn
+    except psycopg2.Error as e:
+        if conn:
+            try:
+                conn.rollback()
+            except:
+                pass
+        raise e
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except:
+                pass
+        raise e
+    finally:
+        if conn and pool:
+            try:
+                pool.putconn(conn)
+            except:
+                pass
+
+def execute_query(query: str, params: tuple = None, fetch: str = 'all'):
+    """Exécute une requête de manière sécurisée avec pool"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, params or ())
+                
+                if fetch == 'all':
+                    result = cur.fetchall()
+                elif fetch == 'one':
+                    result = cur.fetchone()
+                elif fetch == 'none':
+                    conn.commit()
+                    result = True
+                else:
+                    result = cur.fetchall()
+                
+                if fetch != 'none':
+                    conn.commit()
+                
+                return result
+    except Exception as e:
+        st.error(f"Erreur base de données: {e}")
+        return None
+
+# ============================================================================
 # FONCTIONS UTILITAIRES
 # ============================================================================
 
@@ -247,37 +330,11 @@ def t(key):
     lang = get_lang()
     return TRANSLATIONS.get(lang, TRANSLATIONS['fr']).get(key, key)
 
-def get_db_connection():
-    """Connexion à la base de données"""
-    config = {
-        'host': os.getenv("POSTGRES_HOST", "db"),
-        'port': int(os.getenv("POSTGRES_PORT", "5432")),
-        'dbname': os.getenv("POSTGRES_DB", "scraper_pro"),
-        'user': os.getenv("POSTGRES_USER", "scraper_admin"),
-        'password': os.getenv("POSTGRES_PASSWORD", "scraper"),
-        'connect_timeout': 10,
-        'application_name': 'dashboard_streamlit'
-    }
-    return psycopg2.connect(**config)
-
-def execute_query(query: str, params: tuple = None, fetch: str = 'all'):
-    """Exécute une requête de manière sécurisée"""
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(query, params or ())
-                if fetch == 'all':
-                    return cur.fetchall()
-                elif fetch == 'one':
-                    return cur.fetchone()
-                elif fetch == 'none':
-                    return True
-    except Exception as e:
-        st.error(f"Erreur base de données: {e}")
-        return None
-
 def validate_url(url: str) -> bool:
-    """Validation d'URL"""
+    """Validation d'URL améliorée"""
+    if not url:
+        return False
+    
     url_pattern = re.compile(
         r'^https?://'
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}\.?|'
@@ -289,11 +346,11 @@ def validate_url(url: str) -> bool:
     return bool(url_pattern.match(url))
 
 # ============================================================================
-# AUTHENTIFICATION SIMPLIFIÉE
+# AUTHENTIFICATION
 # ============================================================================
 
 def require_authentication():
-    """Authentification simple et claire"""
+    """Authentification robuste"""
     if st.session_state.get("authenticated"):
         return True
     
@@ -317,6 +374,7 @@ def require_authentication():
                         st.session_state["authenticated"] = True
                         st.session_state["username"] = username
                         st.success("✅ Connexion réussie!")
+                        time.sleep(1)
                         st.rerun()
                     else:
                         st.error("❌ Identifiants incorrects")
@@ -328,7 +386,7 @@ def require_authentication():
 # ============================================================================
 
 def render_sidebar():
-    """Sidebar simplifiée avec navigation claire"""
+    """Sidebar avec gestion d'erreur"""
     with st.sidebar:
         st.title("🕷️ Scraper Pro")
         
@@ -371,23 +429,26 @@ def render_sidebar():
         
         st.divider()
         
-        # État du système
-        system_status = get_system_status()
-        if system_status and system_status.get('db_connected'):
-            st.success(t('system_healthy'))
-        else:
-            st.error(t('system_error'))
+        # État du système avec gestion d'erreur
+        try:
+            system_status = get_system_status()
+            if system_status and system_status.get('db_connected'):
+                st.success(t('system_healthy'))
+            else:
+                st.error(t('system_error'))
+        except Exception as e:
+            st.error(f"Erreur système: {e}")
             
         return pages[selected_page]
 
 def get_system_status():
-    """Vérification de l'état du système"""
+    """Vérification de l'état du système avec gestion d'erreur robuste"""
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                return {'db_connected': True}
-    except:
+        # Test simple de connexion
+        result = execute_query("SELECT 1 as test", fetch='one')
+        return {'db_connected': result is not None}
+    except Exception as e:
+        st.error(f"Erreur vérification système: {e}")
         return {'db_connected': False}
 
 # ============================================================================
@@ -395,10 +456,10 @@ def get_system_status():
 # ============================================================================
 
 def page_dashboard():
-    """Tableau de bord principal avec métriques claires"""
+    """Tableau de bord principal avec gestion d'erreur"""
     st.title(t('dashboard'))
     
-    # Métriques principales
+    # Métriques principales avec gestion d'erreur
     col1, col2, col3, col4, col5 = st.columns(5)
     
     try:
@@ -427,17 +488,24 @@ def page_dashboard():
             if metrics['active_proxies'] == 0:
                 st.error(t('no_proxies_warning'))
                 if st.button(t('configure_proxies'), type="primary"):
-                    st.session_state.nav_radio = list(TRANSLATIONS[get_lang()].values())[4]  # Proxy Management
+                    st.session_state.nav_radio = t('proxy_management')
                     st.rerun()
+        else:
+            st.warning("Impossible de récupérer les métriques")
     
     except Exception as e:
         st.error(f"Erreur lors du chargement des métriques: {e}")
+        # Affichage de métriques par défaut
+        for col, label in zip([col1, col2, col3, col4, col5], 
+                              [t('pending_jobs'), t('active_jobs'), t('completed_jobs'), t('total_contacts'), t('active_proxies')]):
+            with col:
+                st.metric(label, "N/A")
 
 def page_jobs():
-    """Gestionnaire de jobs avec interface claire"""
+    """Gestionnaire de jobs avec gestion d'erreur robuste"""
     st.title(t('jobs_manager'))
     
-    # Formulaire de création de job proéminent
+    # Formulaire de création de job
     with st.expander(t('create_job'), expanded=True):
         with st.form("job_form", clear_on_submit=False):
             col1, col2 = st.columns(2)
@@ -482,43 +550,34 @@ def page_jobs():
                     help="Nombre maximum de pages à analyser par domaine"
                 )
             
-            # Boutons d'action clairs
+            # Boutons d'action
             col_a, col_b = st.columns(2)
             
             with col_a:
-                test_button = st.form_submit_button(
-                    t('test_url_button'),
-                    use_container_width=True
-                )
+                test_button = st.form_submit_button(t('test_url_button'), use_container_width=True)
             
             with col_b:
-                create_button = st.form_submit_button(
-                    t('create_job_button'),
-                    use_container_width=True,
-                    type="primary"
-                )
+                create_button = st.form_submit_button(t('create_job_button'), use_container_width=True, type="primary")
             
             # Actions des boutons
             if test_button and url:
                 if validate_url(url):
-                    st.success("✅ URL valide et accessible")
+                    st.success("✅ URL valide")
                 else:
-                    st.error("❌ URL invalide ou inaccessible")
+                    st.error("❌ URL invalide")
             
             if create_button and url:
                 if not validate_url(url):
                     st.error("❌ Veuillez entrer une URL valide")
                 else:
-                    # Vérifier les proxies
-                    proxy_count = execute_query("SELECT COUNT(*) as count FROM proxies WHERE active = true", fetch='one')
-                    if not proxy_count or proxy_count['count'] == 0:
-                        st.error("❌ Aucun proxy configuré ! Configurez des proxies avant de lancer un job.")
-                        if st.button("Aller à la gestion des proxies"):
-                            st.switch_page("proxies")
-                    else:
-                        # Créer le job
-                        try:
-                            execute_query("""
+                    try:
+                        # Vérifier les proxies
+                        proxy_count = execute_query("SELECT COUNT(*) as count FROM proxies WHERE active = true", fetch='one')
+                        if not proxy_count or proxy_count['count'] == 0:
+                            st.error("❌ Aucun proxy configuré ! Configurez des proxies avant de lancer un job.")
+                        else:
+                            # Créer le job
+                            result = execute_query("""
                                 INSERT INTO queue (
                                     url, country_filter, lang_filter, theme, 
                                     use_js, max_pages_per_domain, status, created_by
@@ -528,13 +587,16 @@ def page_jobs():
                                 use_js, max_pages, st.session_state.get('username', 'dashboard')
                             ), fetch='none')
                             
-                            st.success("🚀 Job de scraping lancé avec succès!")
-                            st.balloons()
-                            time.sleep(2)
-                            st.rerun()
-                            
-                        except Exception as e:
-                            st.error(f"❌ Erreur lors de la création du job: {e}")
+                            if result:
+                                st.success("🚀 Job de scraping lancé avec succès!")
+                                st.balloons()
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("❌ Erreur lors de la création du job")
+                                
+                    except Exception as e:
+                        st.error(f"❌ Erreur lors de la création du job: {e}")
     
     # Liste des jobs récents
     st.subheader("Jobs Récents")
@@ -576,12 +638,12 @@ def page_jobs():
         st.error(f"Erreur lors du chargement des jobs: {e}")
 
 def page_proxies():
-    """Gestion des proxies avec interface intuitive"""
+    """Gestion des proxies avec interface robuste"""
     st.title(t('proxy_management'))
     
-    # Ajouter un proxy - Interface simplifiée
+    # Ajouter un proxy
     with st.expander(t('add_proxy'), expanded=True):
-        st.info("💡 **Pourquoi des proxies ?** Les proxies permettent d'éviter les blocages lors du scraping en distribuant les requêtes sur plusieurs IP.")
+        st.info("💡 **Pourquoi des proxies ?** Les proxies permettent d'éviter les blocages lors du scraping.")
         
         with st.form("proxy_form"):
             col1, col2 = st.columns(2)
@@ -604,7 +666,7 @@ def page_proxies():
                     min_value=1,
                     max_value=65535,
                     value=8080,
-                    help="Port de connexion (généralement 8080, 3128, 1080)"
+                    help="Port de connexion"
                 )
             
             with col2:
@@ -631,7 +693,7 @@ def page_proxies():
             
             if add_button and host and port:
                 try:
-                    execute_query("""
+                    result = execute_query("""
                         INSERT INTO proxies (scheme, host, port, username, password, active, created_by)
                         VALUES (%s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (scheme, host, port, COALESCE(username, '')) DO UPDATE SET
@@ -644,9 +706,12 @@ def page_proxies():
                         active, st.session_state.get('username', 'dashboard')
                     ), fetch='none')
                     
-                    st.success("✅ Proxy ajouté avec succès!")
-                    st.rerun()
-                    
+                    if result:
+                        st.success("✅ Proxy ajouté avec succès!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur lors de l'ajout du proxy")
+                        
                 except Exception as e:
                     st.error(f"❌ Erreur lors de l'ajout du proxy: {e}")
     
@@ -682,24 +747,13 @@ def page_proxies():
             
             st.success(f"✅ {len(df)} proxy(s) configuré(s)")
         else:
-            st.warning("⚠️ Aucun proxy configuré. Ajoutez des proxies pour activer le scraping.")
-            st.info("""
-            **Comment obtenir des proxies ?**
-            
-            1. **Proxies gratuits** : ProxyList, HideMy.name (qualité variable)
-            2. **Proxies payants** : BrightData, Oxylabs, ProxyMesh (recommandé pour production)
-            3. **VPS/Serveurs** : Configurer vos propres proxies sur AWS, DigitalOcean
-            
-            **Format supporté :**
-            - `IP:Port` (ex: 192.168.1.100:8080)
-            - Avec authentification : utilisez les champs username/password
-            """)
+            st.warning("⚠️ Aucun proxy configuré.")
             
     except Exception as e:
         st.error(f"Erreur lors du chargement des proxies: {e}")
 
 def page_contacts():
-    """Explorateur de contacts avec interface claire"""
+    """Explorateur de contacts avec interface robuste"""
     st.title(t('contacts_explorer'))
     
     # Statistiques des contacts
@@ -721,11 +775,11 @@ def page_contacts():
             with col2:
                 st.metric("📈 Aujourd'hui", stats['today_contacts'])
             with col3:
-                st.metric("✅ Vérifiés", stats['verified_contacts'])
+                st.metric("✅ Vérifiés", stats['verified_contacts'] or 0)
             with col4:
-                st.metric("🌍 Pays", stats['unique_countries'])
+                st.metric("🌍 Pays", stats['unique_countries'] or 0)
             with col5:
-                st.metric("🏷️ Thèmes", stats['unique_themes'])
+                st.metric("🏷️ Thèmes", stats['unique_themes'] or 0)
     
     except Exception as e:
         st.error(f"Erreur lors du chargement des statistiques: {e}")
@@ -739,14 +793,20 @@ def page_contacts():
         search_text = st.text_input("🔍 Rechercher", placeholder="Nom, email, organisation...")
     
     with col2:
-        countries = execute_query("SELECT DISTINCT country FROM contacts WHERE country IS NOT NULL ORDER BY country") or []
-        country_options = ["Tous"] + [c['country'] for c in countries]
-        selected_country = st.selectbox("🌍 Pays", country_options)
+        try:
+            countries = execute_query("SELECT DISTINCT country FROM contacts WHERE country IS NOT NULL ORDER BY country") or []
+            country_options = ["Tous"] + [c['country'] for c in countries]
+            selected_country = st.selectbox("🌍 Pays", country_options)
+        except:
+            selected_country = "Tous"
     
     with col3:
-        themes = execute_query("SELECT DISTINCT theme FROM contacts WHERE theme IS NOT NULL ORDER BY theme") or []
-        theme_options = ["Tous"] + [t['theme'] for t in themes]
-        selected_theme = st.selectbox("🏷️ Thème", theme_options)
+        try:
+            themes = execute_query("SELECT DISTINCT theme FROM contacts WHERE theme IS NOT NULL ORDER BY theme") or []
+            theme_options = ["Tous"] + [t['theme'] for t in themes]
+            selected_theme = st.selectbox("🏷️ Thème", theme_options)
+        except:
+            selected_theme = "Tous"
     
     # Liste des contacts
     try:
@@ -769,8 +829,9 @@ def page_contacts():
         
         query = f"""
             SELECT 
-                name, email, org, phone, country, theme, verified, created_at,
-                CASE WHEN verified THEN '✅' ELSE '⏳' END as verified_icon
+                name, email, org, phone, country, theme, 
+                COALESCE(verified, false) as verified, created_at,
+                CASE WHEN COALESCE(verified, false) THEN '✅' ELSE '⏳' END as verified_icon
             FROM contacts 
             WHERE {' AND '.join(where_conditions)}
             ORDER BY created_at DESC 
@@ -826,7 +887,7 @@ def page_contacts():
                 }
             )
         else:
-            st.info("🔍 Aucun contact trouvé avec ces critères de recherche")
+            st.info("🔍 Aucun contact trouvé avec ces critères")
             
     except Exception as e:
         st.error(f"Erreur lors du chargement des contacts: {e}")
@@ -911,14 +972,14 @@ def page_settings():
 # ============================================================================
 
 def main():
-    """Application principale simplifiée"""
+    """Application principale avec gestion d'erreur globale"""
     
-    # Vérification authentification
-    if not require_authentication():
-        return
-    
-    # Navigation et affichage des pages
     try:
+        # Vérification authentification
+        if not require_authentication():
+            return
+        
+        # Navigation et affichage des pages
         current_page = render_sidebar()
         
         # Affichage de la page sélectionnée
@@ -936,7 +997,7 @@ def main():
             st.error("Page non trouvée")
             
     except Exception as e:
-        st.error(f"Erreur lors du chargement de la page: {e}")
+        st.error(f"Erreur critique dans l'application: {e}")
         st.exception(e)
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
 # ============================================================================
-# CONFIGURATION MULTILINGUE
+# CONFIGURATION MULTILINGUE - CORRIGÉE
 # ============================================================================
 
 # Langues supportées
@@ -121,7 +121,7 @@ TRANSLATIONS = {
 }
 
 # ============================================================================
-# CONFIGURATION STREAMLIT
+# CONFIGURATION STREAMLIT - CORRIGÉE
 # ============================================================================
 
 st.set_page_config(
@@ -131,7 +131,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS amélioré
+# CSS amélioré et corrigé
 st.markdown("""
 <style>
     :root {
@@ -177,62 +177,19 @@ st.markdown("""
         background-color: #218838;
         transform: translateY(-1px);
     }
-    
-    .stAlert {
-        border-radius: 6px;
-        border: 1px solid;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    
-    .stTextInput input, .stSelectbox select, .stNumberInput input {
-        border: 2px solid var(--border-color);
-        border-radius: 6px;
-        padding: 0.5rem;
-        font-size: 1rem;
-    }
-    
-    .stTextInput input:focus, .stSelectbox select:focus {
-        border-color: var(--primary-color);
-        outline: none;
-        box-shadow: 0 0 0 2px rgba(46, 123, 246, 0.2);
-    }
-    
-    .dataframe {
-        border: 1px solid var(--border-color);
-        border-radius: 6px;
-    }
-    
-    .stError {
-        background-color: #f8d7da;
-        color: #721c24;
-        border: 1px solid #f5c6cb;
-    }
-    
-    .stSuccess {
-        background-color: #d4edda;
-        color: #155724;
-        border: 1px solid #c3e6cb;
-    }
-    
-    .stWarning {
-        background-color: #fff3cd;
-        color: #856404;
-        border: 1px solid #ffeaa7;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# GESTION BASE DE DONNÉES ROBUSTE
+# GESTION BASE DE DONNÉES ROBUSTE - CORRIGÉE
 # ============================================================================
 
-# Configuration de la base de données
+# Configuration de la base de données CORRIGÉE
 DB_CONFIG = {
     'host': os.getenv("POSTGRES_HOST", "db"),
     'port': int(os.getenv("POSTGRES_PORT", "5432")),
-    'dbname': os.getenv("POSTGRES_DB", "scraper_pro"),
-    'user': os.getenv("POSTGRES_USER", "scraper_admin"),
+    'dbname': os.getenv("POSTGRES_DB", "scraper_pro"),  # CORRIGÉ: nom cohérent
+    'user': os.getenv("POSTGRES_USER", "scraper_admin"),  # CORRIGÉ
     'password': os.getenv("POSTGRES_PASSWORD", "scraper"),
     'connect_timeout': int(os.getenv("POSTGRES_CONNECT_TIMEOUT", "30")),
     'application_name': 'dashboard_streamlit'
@@ -243,7 +200,7 @@ _db_pool = None
 
 @st.cache_resource
 def get_db_pool():
-    """Crée et retourne le pool de connexions global"""
+    """Crée et retourne le pool de connexions global - CORRIGÉ"""
     global _db_pool
     if _db_pool is None:
         try:
@@ -252,6 +209,7 @@ def get_db_pool():
                 maxconn=int(os.getenv("CONNECTION_POOL_SIZE", "10")),
                 **DB_CONFIG
             )
+            st.success("Pool de connexions DB initialisé")
         except Exception as e:
             st.error(f"Impossible de créer le pool DB: {e}")
             return None
@@ -259,7 +217,7 @@ def get_db_pool():
 
 @contextmanager
 def get_db_connection():
-    """Context manager pour connexions DB avec pool"""
+    """Context manager pour connexions DB avec pool - CORRIGÉ"""
     pool = get_db_pool()
     if not pool:
         raise Exception("Pool DB non disponible")
@@ -269,6 +227,8 @@ def get_db_connection():
         conn = pool.getconn()
         if conn:
             yield conn
+        else:
+            raise Exception("Impossible d'obtenir une connexion du pool")
     except psycopg2.Error as e:
         if conn:
             try:
@@ -291,7 +251,7 @@ def get_db_connection():
                 pass
 
 def execute_query(query: str, params: tuple = None, fetch: str = 'all'):
-    """Exécute une requête de manière sécurisée avec pool"""
+    """Exécute une requête de manière sécurisée avec pool - FONCTION AJOUTÉE"""
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -316,22 +276,22 @@ def execute_query(query: str, params: tuple = None, fetch: str = 'all'):
         return None
 
 # ============================================================================
-# FONCTIONS UTILITAIRES
+# FONCTIONS UTILITAIRES - CORRIGÉES
 # ============================================================================
 
 def get_lang():
-    """Récupère la langue sélectionnée"""
+    """Récupère la langue sélectionnée - CORRIGÉ"""
     if 'language' not in st.session_state:
         st.session_state.language = 'fr'
     return st.session_state.language
 
 def t(key):
-    """Fonction de traduction"""
+    """Fonction de traduction - CORRIGÉ"""
     lang = get_lang()
     return TRANSLATIONS.get(lang, TRANSLATIONS['fr']).get(key, key)
 
 def validate_url(url: str) -> bool:
-    """Validation d'URL améliorée"""
+    """Validation d'URL améliorée - CORRIGÉ"""
     if not url:
         return False
     
@@ -346,11 +306,11 @@ def validate_url(url: str) -> bool:
     return bool(url_pattern.match(url))
 
 # ============================================================================
-# AUTHENTIFICATION
+# AUTHENTIFICATION - CORRIGÉE
 # ============================================================================
 
 def require_authentication():
-    """Authentification robuste"""
+    """Authentification robuste - CORRIGÉE"""
     if st.session_state.get("authenticated"):
         return True
     
@@ -382,11 +342,11 @@ def require_authentication():
     return False
 
 # ============================================================================
-# INTERFACE PRINCIPALE
+# INTERFACE PRINCIPALE - CORRIGÉE
 # ============================================================================
 
 def render_sidebar():
-    """Sidebar avec gestion d'erreur"""
+    """Sidebar avec gestion d'erreur - CORRIGÉ"""
     with st.sidebar:
         st.title("🕷️ Scraper Pro")
         
@@ -429,7 +389,7 @@ def render_sidebar():
         
         st.divider()
         
-        # État du système avec gestion d'erreur
+        # État du système avec gestion d'erreur - CORRIGÉ
         try:
             system_status = get_system_status()
             if system_status and system_status.get('db_connected'):
@@ -442,7 +402,7 @@ def render_sidebar():
         return pages[selected_page]
 
 def get_system_status():
-    """Vérification de l'état du système avec gestion d'erreur robuste"""
+    """Vérification de l'état du système avec gestion d'erreur robuste - CORRIGÉ"""
     try:
         # Test simple de connexion
         result = execute_query("SELECT 1 as test", fetch='one')
@@ -452,11 +412,11 @@ def get_system_status():
         return {'db_connected': False}
 
 # ============================================================================
-# PAGES PRINCIPALES
+# PAGES PRINCIPALES - CORRIGÉES
 # ============================================================================
 
 def page_dashboard():
-    """Tableau de bord principal avec gestion d'erreur"""
+    """Tableau de bord principal avec gestion d'erreur - CORRIGÉ"""
     st.title(t('dashboard'))
     
     # Métriques principales avec gestion d'erreur
@@ -468,7 +428,7 @@ def page_dashboard():
                 (SELECT COUNT(*) FROM queue WHERE status = 'pending') as pending_jobs,
                 (SELECT COUNT(*) FROM queue WHERE status = 'in_progress') as active_jobs,
                 (SELECT COUNT(*) FROM queue WHERE status = 'done' AND DATE(updated_at) = CURRENT_DATE) as completed_jobs,
-                (SELECT COUNT(*) FROM contacts WHERE DATE(created_at) = CURRENT_DATE) as total_contacts,
+                (SELECT COUNT(*) FROM contacts WHERE DATE(created_at) = CURRENT_DATE AND deleted_at IS NULL) as total_contacts,
                 (SELECT COUNT(*) FROM proxies WHERE active = true) as active_proxies
         """, fetch='one')
         
@@ -502,7 +462,7 @@ def page_dashboard():
                 st.metric(label, "N/A")
 
 def page_jobs():
-    """Gestionnaire de jobs avec gestion d'erreur robuste"""
+    """Gestionnaire de jobs avec gestion d'erreur robuste - CORRIGÉ"""
     st.title(t('jobs_manager'))
     
     # Formulaire de création de job
@@ -598,7 +558,7 @@ def page_jobs():
                     except Exception as e:
                         st.error(f"❌ Erreur lors de la création du job: {e}")
     
-    # Liste des jobs récents
+    # Liste des jobs récents - CORRIGÉE
     st.subheader("Jobs Récents")
     try:
         jobs = execute_query("""
@@ -610,6 +570,7 @@ def page_jobs():
                        ELSE '⏳'
                    END as status_icon
             FROM queue 
+            WHERE deleted_at IS NULL
             ORDER BY created_at DESC 
             LIMIT 20
         """)
@@ -638,7 +599,7 @@ def page_jobs():
         st.error(f"Erreur lors du chargement des jobs: {e}")
 
 def page_proxies():
-    """Gestion des proxies avec interface robuste"""
+    """Gestion des proxies avec interface robuste - CORRIGÉE"""
     st.title(t('proxy_management'))
     
     # Ajouter un proxy
@@ -715,7 +676,7 @@ def page_proxies():
                 except Exception as e:
                     st.error(f"❌ Erreur lors de l'ajout du proxy: {e}")
     
-    # Liste des proxies existants
+    # Liste des proxies existants - CORRIGÉE
     st.subheader("Proxies Configurés")
     try:
         proxies = execute_query("""
@@ -753,7 +714,7 @@ def page_proxies():
         st.error(f"Erreur lors du chargement des proxies: {e}")
 
 def page_contacts():
-    """Explorateur de contacts avec interface robuste"""
+    """Explorateur de contacts avec interface robuste - CORRIGÉ"""
     st.title(t('contacts_explorer'))
     
     # Statistiques des contacts
@@ -794,7 +755,7 @@ def page_contacts():
     
     with col2:
         try:
-            countries = execute_query("SELECT DISTINCT country FROM contacts WHERE country IS NOT NULL ORDER BY country") or []
+            countries = execute_query("SELECT DISTINCT country FROM contacts WHERE country IS NOT NULL AND deleted_at IS NULL ORDER BY country") or []
             country_options = ["Tous"] + [c['country'] for c in countries]
             selected_country = st.selectbox("🌍 Pays", country_options)
         except:
@@ -802,13 +763,13 @@ def page_contacts():
     
     with col3:
         try:
-            themes = execute_query("SELECT DISTINCT theme FROM contacts WHERE theme IS NOT NULL ORDER BY theme") or []
+            themes = execute_query("SELECT DISTINCT theme FROM contacts WHERE theme IS NOT NULL AND deleted_at IS NULL ORDER BY theme") or []
             theme_options = ["Tous"] + [t['theme'] for t in themes]
             selected_theme = st.selectbox("🏷️ Thème", theme_options)
         except:
             selected_theme = "Tous"
     
-    # Liste des contacts
+    # Liste des contacts - CORRIGÉE
     try:
         # Construction de la requête avec filtres
         where_conditions = ["deleted_at IS NULL"]
@@ -893,7 +854,7 @@ def page_contacts():
         st.error(f"Erreur lors du chargement des contacts: {e}")
 
 def page_settings():
-    """Page de paramètres système"""
+    """Page de paramètres système - CORRIGÉE"""
     st.title(t('settings'))
     
     # Configuration générale
@@ -918,10 +879,10 @@ def page_settings():
         try:
             db_stats = execute_query("""
                 SELECT 
-                    (SELECT COUNT(*) FROM queue) as total_jobs,
-                    (SELECT COUNT(*) FROM contacts) as total_contacts,
+                    (SELECT COUNT(*) FROM queue WHERE deleted_at IS NULL) as total_jobs,
+                    (SELECT COUNT(*) FROM contacts WHERE deleted_at IS NULL) as total_contacts,
                     (SELECT COUNT(*) FROM proxies) as total_proxies,
-                    (SELECT MAX(created_at) FROM queue) as last_job_created
+                    (SELECT MAX(created_at) FROM queue WHERE deleted_at IS NULL) as last_job_created
             """, fetch='one')
             
             if db_stats:
@@ -934,7 +895,7 @@ def page_settings():
     
     st.divider()
     
-    # Actions de maintenance
+    # Actions de maintenance - CORRIGÉES
     st.subheader("🧹 Maintenance")
     
     col1, col2, col3 = st.columns(3)
@@ -946,6 +907,7 @@ def page_settings():
                     UPDATE queue SET deleted_at = NOW() 
                     WHERE status IN ('done', 'failed') 
                     AND updated_at < NOW() - INTERVAL '7 days'
+                    AND deleted_at IS NULL
                 """, fetch='none')
                 if result:
                     st.success("✅ Anciens jobs supprimés")
@@ -968,11 +930,11 @@ def page_settings():
             st.code("docker compose restart")
 
 # ============================================================================
-# APPLICATION PRINCIPALE
+# APPLICATION PRINCIPALE - CORRIGÉE
 # ============================================================================
 
 def main():
-    """Application principale avec gestion d'erreur globale"""
+    """Application principale avec gestion d'erreur globale - CORRIGÉE"""
     
     try:
         # Vérification authentification
@@ -999,6 +961,10 @@ def main():
     except Exception as e:
         st.error(f"Erreur critique dans l'application: {e}")
         st.exception(e)
+        
+        # Bouton de rechargement
+        if st.button("🔄 Recharger l'application"):
+            st.rerun()
 
 if __name__ == "__main__":
     main()

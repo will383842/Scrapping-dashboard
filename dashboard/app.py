@@ -190,7 +190,7 @@ DB_CONFIG = {
     'port': int(os.getenv("POSTGRES_PORT", "5432")),
     'dbname': os.getenv("POSTGRES_DB", "scraper_pro"),  # CORRIGÉ: nom cohérent
     'user': os.getenv("POSTGRES_USER", "scraper_admin"),  # CORRIGÉ
-    'password': os.getenv("POSTGRES_PASSWORD", "scraper"),
+    'password': os.getenv("POSTGRES_PASSWORD", "scraper_admin"),  # CORRIGÉ
     'connect_timeout': int(os.getenv("POSTGRES_CONNECT_TIMEOUT", "30")),
     'application_name': 'dashboard_streamlit'
 }
@@ -425,9 +425,9 @@ def page_dashboard():
     try:
         metrics = execute_query("""
             SELECT 
-                (SELECT COUNT(*) FROM queue WHERE status = 'pending') as pending_jobs,
-                (SELECT COUNT(*) FROM queue WHERE status = 'in_progress') as active_jobs,
-                (SELECT COUNT(*) FROM queue WHERE status = 'done' AND DATE(updated_at) = CURRENT_DATE) as completed_jobs,
+                (SELECT COUNT(*) FROM queue WHERE status = 'pending' AND deleted_at IS NULL) as pending_jobs,
+                (SELECT COUNT(*) FROM queue WHERE status = 'in_progress' AND deleted_at IS NULL) as active_jobs,
+                (SELECT COUNT(*) FROM queue WHERE status = 'done' AND DATE(updated_at) = CURRENT_DATE AND deleted_at IS NULL) as completed_jobs,
                 (SELECT COUNT(*) FROM contacts WHERE DATE(created_at) = CURRENT_DATE AND deleted_at IS NULL) as total_contacts,
                 (SELECT COUNT(*) FROM proxies WHERE active = true) as active_proxies
         """, fetch='one')

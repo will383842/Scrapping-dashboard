@@ -11,6 +11,16 @@ from typing import Optional, Dict, List
 from contextlib import contextmanager
 
 import streamlit as st
+
+# --------- helper to load full country list ---------
+def load_countries_from_config():
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "..", "config", "countries.json"), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return list(dict.fromkeys(data.get("countries", [])))
+    except Exception:
+        return []
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -406,9 +416,16 @@ def render_sidebar():
             t('settings'): "settings"
         }
         
+        keys = list(pages.keys())
+        default_index = 0
+        if 'pending_nav' in st.session_state:
+            target = st.session_state.pop('pending_nav')
+            if target in keys:
+                default_index = keys.index(target)
         selected_page = st.radio(
-            "📋 Navigation", 
-            list(pages.keys()), 
+            "📋 Navigation",
+            keys,
+            index=default_index,
             key="nav_radio"
         )
         
@@ -473,7 +490,7 @@ def page_dashboard():
             if metrics['active_proxies'] == 0:
                 st.error(t('no_proxies_warning'))
                 if st.button(t('configure_proxies'), type="primary"):
-                    st.session_state.nav_radio = t('proxy_management')
+                    st.session_state['pending_nav'] = t('proxy_management')
                     st.rerun()
         else:
             st.warning("Impossible de récupérer les métriques")
@@ -502,88 +519,21 @@ def page_jobs():
                     help="URL du site à analyser pour extraire les contacts"
                 )
                 
-                country = st.selectbox(
-                    t('job_country'),
-                    options=["", "France", "United States", "Canada", "Germany", "Spain"],
-                    help="Pays cible pour filtrer les résultats"
+                all_countries = load_countries_from_config()
+                country_options = ['(Tous les pays)'] + all_countries
+                selected_countries = st.multiselect(
+                    t('job_country'), country_options, default=['(Tous les pays)'],
+                    help="Sélectionnez un ou plusieurs pays (ou '(Tous les pays)')"
                 )
-                
-                # MODIFIÉ: Remplacement du selectbox theme par text_area pour mots-clés
-                keywords_text = st.text_area(
-                    t('custom_keywords'),
-                    placeholder="avocat, lawyer, cabinet juridique\ndocteur, médecin, clinique\nconsultant, conseil",
-                    help="Entrez les mots-clés à rechercher, séparés par des virgules ou des retours à la ligne",
-                    height=100
-                )
-                
-                # AJOUTÉ: Selectbox pour le mode de correspondance
-                match_mode = st.selectbox(
-                    t('match_mode'),
-                    options=["any", "multiple", "all"],
-                    format_func=lambda x: {
-                        "any": t('match_mode_any'),
-                        "multiple": t('match_mode_multiple'), 
-                        "all": t('match_mode_all')
-                    }[x],
-                    help="Comment les mots-clés doivent correspondre dans le contenu"
-                )
-            
-            with col2:
-                language = st.selectbox(
-                    t('job_language'),
-                    options=["", "fr", "en", "es", "de"],
-                    help="Langue du contenu à analyser"
-                )
-                
-                use_js = st.checkbox(
-                    t('use_javascript'),
-                    value=False,
-                    help="Activer pour les sites avec contenu dynamique"
-                )
-                
-                max_pages = st.number_input(
-                    t('max_pages'),
-                    min_value=1,
-                    max_value=100,
-                    value=25,
-                    help="Nombre maximum de pages à analyser par domaine"
-                )
-                
-                # AJOUTÉ: Champ pour le nombre minimum de correspondances (si mode multiple/all)
-                if match_mode in ['multiple', 'all']:
-                    min_matches = st.number_input(
-                        t('min_matches'),
-                        min_value=1,
-                        max_value=10,
-                        value=2 if match_mode == 'multiple' else 1,
-                        help="Nombre minimum de mots-clés qui doivent être trouvés"
-                    )
+                if '(Tous les pays)' in selected_countries or not selected_countries:
+                    countries = [None]
                 else:
-                    min_matches = 1
-            
-            # Boutons d'action
-            col_a, col_b = st.columns(2)
-            
-            with col_a:
-                test_button = st.form_submit_button(t('test_url_button'), use_container_width=True)
-            
-            with col_b:
-                create_button = st.form_submit_button(t('create_job_button'), use_container_width=True, type="primary")
-            
-            # Actions des boutons
-            if test_button and url:
-                if validate_url(url):
-                    st.success("✅ URL valide")
-                    if keywords_text:
-                        keywords = parse_keywords(keywords_text)
-                        st.info(f"Mots-clés détectés: {', '.join(keywords[:5])}" + 
-                               (f" (+{len(keywords)-5} autres)" if len(keywords) > 5 else ""))
-                else:
+                    countries = selected_countrieselse:
                     st.error("❌ URL invalide")
             
-            if create_button and url:
-                if not validate_url(url):
-                    st.error("❌ Veuillez entrer une URL valide")
+            if create_button and (urls if 'urls' in locals() else []):
+                if not all(validate_url(u) for u in urls):
+                    st.error("❌ Veuillez entrer au moins une URL valide (une par ligne)")
                 elif not keywords_text.strip():
                     st.error("❌ Veuillez entrer au moins un mot-clé")
                 else:
@@ -597,20 +547,25 @@ def page_jobs():
                             keywords = parse_keywords(keywords_text)
                             
                             # MODIFIÉ: Créer le job avec custom_keywords au lieu de theme
-                            result = execute_query("""
-                                INSERT INTO queue (
-                                    url, country_filter, lang_filter, custom_keywords, 
-                                    match_mode, min_matches, use_js, max_pages_per_domain, 
-                                    status, created_by
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)
-                            """, (
-                                url, country or None, language or None, keywords,
-                                match_mode, min_matches, use_js, max_pages, 
-                                st.session_state.get('username', 'dashboard')
-                            ), fetch='none')
+                            created = 0
+                            for u in urls:
+                                for c in countries:
+                                    res = execute_query("""
+                                        INSERT INTO queue (
+                                            url, country_filter, lang_filter, custom_keywords,
+                                            match_mode, min_matches, use_js, max_pages_per_domain,
+                                            status, created_by
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)
+                                    """, (
+                                        u, c, language or None, keywords,
+                                        match_mode, min_matches, use_js, max_pages,
+                                        st.session_state.get('username', 'dashboard')
+                                    ), fetch='none')
+                                    created += 1
+                            result = True
                             
                             if result:
-                                st.success("🚀 Job de scraping lancé avec succès!")
+                                st.success(f"🚀 {created} job(s) ajoutés à la file!")
                                 st.info(f"Configuration: {len(keywords)} mots-clés, mode '{match_mode}', {min_matches} correspondance(s) minimum")
                                 st.balloons()
                                 time.sleep(1)
@@ -831,11 +786,7 @@ def page_contacts():
     
     with col3:
         try:
-            themes = execute_query("SELECT DISTINCT theme FROM contacts WHERE theme IS NOT NULL AND deleted_at IS NULL ORDER BY theme") or []
-            theme_options = ["Tous"] + [t['theme'] for t in themes]
-            selected_theme = st.selectbox("🏷️ Thème", theme_options)
-        except:
-            selected_theme = "Tous"
+            selected_theme = 'Tous'
     
     # Liste des contacts - CORRIGÉE
     try:
@@ -852,7 +803,7 @@ def page_contacts():
             where_conditions.append("country = %s")
             params.append(selected_country)
         
-        if selected_theme != "Tous":
+        if False:  # Thème désactivé
             where_conditions.append("theme = %s") 
             params.append(selected_theme)
         
@@ -927,6 +878,14 @@ def page_settings():
     
     # Configuration générale
     st.subheader("⚙️ Configuration Générale")
+    # Warm-up proxies
+    try:
+        from scraper.utils.proxy_warmup import ProxyWarmer
+        if st.button("🔥 Lancer le warm-up des proxies"):
+            ProxyWarmer().warm_all_proxies()
+            st.success("Warm-up lancé")
+    except Exception as e:
+        st.info("(Warm-up indisponible) " + str(e))
     
     col1, col2 = st.columns(2)
     

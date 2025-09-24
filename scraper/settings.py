@@ -24,3 +24,7 @@ PLAYWRIGHT_BROWSER_TYPE = os.getenv("PLAYWRIGHT_BROWSER_TYPE", "chromium")
 PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT = int(os.getenv("PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT", "30000"))
 
 # Optional: block images/media for performance at handler level in spider
+DOWNLOADER_MIDDLEWARES = {
+    'scraper.middlewares.RotatingProxyMiddleware': 543,
+    'scrapy_playwright.middleware.PlaywrightMiddleware': 800,
+}

@@ -60,7 +60,7 @@ textblob==0.17.1
 # ==========================================================================
 # URL & CONTENT PROCESSING - Pour anti-doublons
 # ==========================================================================
-urltools==0.3.2         # URL normalization
+urltools==0.4.0         # URL normalization
 beautifulsoup4==4.12.2  # HTML parsing avancé
 lxml==4.9.3              # XML/HTML parser performance
 html5lib==1.1            # HTML parser robust

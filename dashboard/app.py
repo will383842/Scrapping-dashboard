@@ -1,4 +1,7 @@
-﻿import os
+﻿#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
 import json
 import psycopg2
 import streamlit as st
@@ -13,484 +16,254 @@ import re
 from typing import Optional, Dict, List
 
 # ============================================================================
-# LISTE DES 197 PAYS (193 ONU + 2 observateurs + Kosovo + Taiwan)
-# Streamlit permet la recherche par saisie dans selectbox/multiselect
+# CONFIGURATION MULTILINGUE
 # ============================================================================
-COUNTRIES = [
-    "Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria",
-    "Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan",
-    "Bolivia","Bosnia and Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia",
-    "Cameroon","Canada","Central African Republic","Chad","Chile","China","Colombia","Comoros","Congo (Congo-Brazzaville)","Costa Rica",
-    "Côte d'Ivoire","Croatia","Cuba","Cyprus","Czechia","Democratic Republic of the Congo","Denmark","Djibouti","Dominica","Dominican Republic",
-    "Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland",
-    "France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea",
-    "Guinea-Bissau","Guyana","Haiti","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq",
-    "Ireland","Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait",
-    "Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg",
-    "Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico",
-    "Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru",
-    "Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman",
-    "Pakistan","Palau","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar",
-    "Romania","Russia","Rwanda","Saint Kitts and Nevis","Saint Lucia","Saint Vincent and the Grenadines","Samoa","San Marino","Sao Tome and Principe","Saudi Arabia",
-    "Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa",
-    "South Korea","South Sudan","Spain","Sri Lanka","Sudan","Suriname","Sweden","Switzerland","Syria","Tajikistan",
-    "Tanzania","Thailand","Timor-Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu",
-    "Uganda","Ukraine","United Arab Emirates","United Kingdom","United States","Uruguay","Uzbekistan","Vanuatu","Vatican City","Venezuela",
-    "Vietnam","Yemen","Zambia","Zimbabwe",
-    "State of Palestine","Kosovo","Taiwan"
-]
-COUNTRIES = sorted(list(dict.fromkeys(COUNTRIES)), key=lambda x: x.lower())
+
+# Langues supportées
+LANGUAGES = {
+    'fr': 'Français',
+    'en': 'English'
+}
+
+# Traductions
+TRANSLATIONS = {
+    'fr': {
+        'app_title': '🕷️ Scraper Pro Dashboard',
+        'login_title': 'Connexion',
+        'username': 'Nom d\'utilisateur',
+        'password': 'Mot de passe',
+        'login_button': 'Se connecter',
+        'logout_button': 'Déconnexion',
+        'dashboard': '📊 Tableau de bord',
+        'jobs_manager': '🎯 Gestionnaire de Jobs',
+        'contacts_explorer': '📇 Explorateur de Contacts',
+        'proxy_management': '🌐 Gestion des Proxies',
+        'settings': '⚙️ Paramètres',
+        'create_job': 'Créer un Job',
+        'job_url': 'URL à analyser',
+        'job_country': 'Pays cible',
+        'job_theme': 'Thème de recherche',
+        'job_language': 'Langue',
+        'use_javascript': 'Utiliser JavaScript',
+        'max_pages': 'Pages maximum',
+        'priority': 'Priorité',
+        'create_job_button': '🚀 LANCER LE SCRAPING',
+        'test_url_button': 'Tester URL',
+        'status': 'Statut',
+        'pending_jobs': 'Jobs en attente',
+        'active_jobs': 'Jobs actifs',
+        'completed_jobs': 'Jobs terminés',
+        'total_contacts': 'Total contacts',
+        'active_proxies': 'Proxies actifs',
+        'add_proxy': 'Ajouter un Proxy',
+        'proxy_host': 'Adresse IP/Host',
+        'proxy_port': 'Port',
+        'proxy_username': 'Nom d\'utilisateur',
+        'proxy_password': 'Mot de passe',
+        'proxy_type': 'Type de proxy',
+        'add_proxy_button': 'Ajouter le Proxy',
+        'test_proxy_button': 'Tester le Proxy',
+        'no_proxies_warning': '⚠️ Aucun proxy configuré ! Le scraping ne fonctionnera pas.',
+        'configure_proxies': 'Configurer des Proxies',
+        'system_status': 'État du système',
+        'system_healthy': '🟢 Système opérationnel',
+        'system_warning': '🟡 Attention requise',
+        'system_error': '🔴 Problème système'
+    },
+    'en': {
+        'app_title': '🕷️ Scraper Pro Dashboard',
+        'login_title': 'Login',
+        'username': 'Username',
+        'password': 'Password',
+        'login_button': 'Login',
+        'logout_button': 'Logout',
+        'dashboard': '📊 Dashboard',
+        'jobs_manager': '🎯 Jobs Manager',
+        'contacts_explorer': '📇 Contacts Explorer', 
+        'proxy_management': '🌐 Proxy Management',
+        'settings': '⚙️ Settings',
+        'create_job': 'Create Job',
+        'job_url': 'URL to analyze',
+        'job_country': 'Target country',
+        'job_theme': 'Search theme',
+        'job_language': 'Language',
+        'use_javascript': 'Use JavaScript',
+        'max_pages': 'Maximum pages',
+        'priority': 'Priority',
+        'create_job_button': '🚀 START SCRAPING',
+        'test_url_button': 'Test URL',
+        'status': 'Status',
+        'pending_jobs': 'Pending jobs',
+        'active_jobs': 'Active jobs',
+        'completed_jobs': 'Completed jobs',
+        'total_contacts': 'Total contacts',
+        'active_proxies': 'Active proxies',
+        'add_proxy': 'Add Proxy',
+        'proxy_host': 'IP Address/Host',
+        'proxy_port': 'Port',
+        'proxy_username': 'Username',
+        'proxy_password': 'Password',
+        'proxy_type': 'Proxy type',
+        'add_proxy_button': 'Add Proxy',
+        'test_proxy_button': 'Test Proxy',
+        'no_proxies_warning': '⚠️ No proxies configured! Scraping will not work.',
+        'configure_proxies': 'Configure Proxies',
+        'system_status': 'System status',
+        'system_healthy': '🟢 System operational',
+        'system_warning': '🟡 Attention required',
+        'system_error': '🔴 System problem'
+    }
+}
 
 # ============================================================================
-# CONFIGURATION
+# CONFIGURATION STREAMLIT SIMPLIFIÉE
 # ============================================================================
+
 st.set_page_config(
     page_title="🕷️ Scraper Pro Dashboard",
     page_icon="🕷️",
     layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': None,
-        'Report a bug': None,
-        'About': "Scraper Pro Dashboard - Version Production 2.0"
-    }
+    initial_sidebar_state="expanded"
 )
 
-# ============================================================================
-# MODERN CSS STYLES 2025/2026
-# ============================================================================
+# CSS SIMPLIFIÉ ET LISIBLE
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-    
-    /* Variables CSS Modernes */
+    /* Variables pour couleurs cohérentes */
     :root {
-        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        --success-gradient: linear-gradient(135deg, #0ba360 0%, #3cba92 100%);
-        --dark-gradient: linear-gradient(135deg, #1a1c20 0%, #2d3436 100%);
-        --glass-bg: rgba(255, 255, 255, 0.05);
-        --glass-border: rgba(255, 255, 255, 0.1);
-        --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.15);
-        --shadow-glow: 0 0 40px rgba(102, 126, 234, 0.4);
-        --text-primary: #1a1c20;
-        --text-secondary: #64748b;
-        --border-radius-lg: 20px;
-        --border-radius-xl: 24px;
-        --transition-smooth: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        --primary-color: #2E7BF6;
+        --success-color: #28a745;
+        --warning-color: #ffc107;
+        --danger-color: #dc3545;
+        --dark-color: #343a40;
+        --light-color: #f8f9fa;
+        --border-color: #dee2e6;
     }
     
-    /* Reset & Base */
-    * {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    /* Interface propre et lisible */
+    .main .block-container {
+        padding: 1rem;
+        max-width: 1200px;
     }
     
-    /* Main App Container */
-    .stApp {
-        background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
-        min-height: 100vh;
-    }
-    
-    /* Glassmorphism Cards */
-    .element-container, .stTabs [data-baseweb="tab-panel"], 
-    div[data-testid="column"] > div {
-        background: var(--glass-bg);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid var(--glass-border);
-        border-radius: var(--border-radius-lg);
-        transition: var(--transition-smooth);
-    }
-    
-    .element-container:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-xl);
-        border-color: rgba(102, 126, 234, 0.3);
-    }
-    
-    /* Modern Metrics */
+    /* Métriques avec couleurs claires */
     [data-testid="metric-container"] {
-        background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: var(--border-radius-lg);
-        padding: 1.5rem;
-        transition: var(--transition-smooth);
-    }
-    
-    [data-testid="metric-container"]:hover {
-        transform: scale(1.02);
-        box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
-        background: linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(118,75,162,0.1) 100%);
-    }
-    
-    [data-testid="metric-container"] [data-testid="stMetricLabel"] {
-        color: #94a3b8 !important;
-        font-weight: 500 !important;
-        font-size: 0.875rem !important;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
+        background: white;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     
     [data-testid="metric-container"] [data-testid="stMetricValue"] {
-        color: #f1f5f9 !important;
-        font-weight: 700 !important;
-        font-size: 1.875rem !important;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: var(--primary-color);
+        font-size: 2rem;
+        font-weight: bold;
     }
     
-    /* Modern Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    /* Boutons d'action proéminents */
+    .stButton > button[kind="primary"] {
+        background-color: var(--success-color);
         color: white;
         border: none;
-        border-radius: 12px;
-        padding: 0.75rem 1.5rem;
-        font-weight: 600;
-        font-size: 0.95rem;
-        letter-spacing: 0.3px;
-        transition: var(--transition-smooth);
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-        position: relative;
-        overflow: hidden;
+        border-radius: 6px;
+        padding: 0.5rem 1rem;
+        font-weight: bold;
+        font-size: 1.1rem;
     }
     
-    .stButton > button::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-        transition: left 0.5s;
+    .stButton > button[kind="primary"]:hover {
+        background-color: #218838;
+        transform: translateY(-1px);
     }
     
-    .stButton > button:hover::before {
-        left: 100%;
+    /* Alertes visibles */
+    .stAlert {
+        border-radius: 6px;
+        border: 1px solid;
+        padding: 1rem;
+        margin: 1rem 0;
     }
     
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
+    /* Formulaires lisibles */
+    .stTextInput input, .stSelectbox select, .stNumberInput input {
+        border: 2px solid var(--border-color);
+        border-radius: 6px;
+        padding: 0.5rem;
+        font-size: 1rem;
     }
     
-    .stButton > button:active {
-        transform: translateY(0);
+    .stTextInput input:focus, .stSelectbox select:focus {
+        border-color: var(--primary-color);
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(46, 123, 246, 0.2);
     }
     
-    /* Form Submit Button Primary */
-    button[type="submit"][kind="primary"] {
-        background: linear-gradient(135deg, #0ba360 0%, #3cba92 100%) !important;
-        box-shadow: 0 4px 15px rgba(11, 163, 96, 0.3) !important;
+    /* Sidebar propre */
+    .css-1d391kg {
+        background-color: var(--light-color);
+        border-right: 1px solid var(--border-color);
     }
     
-    button[type="submit"][kind="primary"]:hover {
-        box-shadow: 0 8px 25px rgba(11, 163, 96, 0.5) !important;
+    /* Tables lisibles */
+    .dataframe {
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
     }
     
-    /* Modern Input Fields */
-    .stTextInput > div > div > input,
-    .stSelectbox > div > div > div[role='button'],
-    .stMultiSelect > div > div > div[role='button'],
-    .stTextArea > div > div > textarea {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 12px !important;
-        color: #f1f5f9 !important;
-        padding: 0.75rem !important;
-        font-size: 0.95rem !important;
-        transition: var(--transition-smooth) !important;
-    }
-    
-    .stTextInput > div > div > input:focus,
-    .stSelectbox > div > div > div[role='button']:focus,
-    .stTextArea > div > div > textarea:focus {
-        border-color: #667eea !important;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
-        background: rgba(255, 255, 255, 0.08) !important;
-    }
-    
-    /* Modern Sidebar */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, rgba(15,15,35,0.98) 0%, rgba(26,26,46,0.98) 100%);
-        backdrop-filter: blur(20px);
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    
-    section[data-testid="stSidebar"] .stRadio label {
-        padding: 0.75rem 1rem;
-        border-radius: 12px;
-        transition: var(--transition-smooth);
-        color: #cbd5e1 !important;
-        margin-bottom: 0.25rem;
-    }
-    
-    section[data-testid="stSidebar"] .stRadio label:hover {
-        background: rgba(102, 126, 234, 0.1);
-        padding-left: 1.25rem;
-    }
-    
-    section[data-testid="stSidebar"] .stRadio label[data-selected="true"] {
-        background: linear-gradient(135deg, rgba(102,126,234,0.2) 0%, rgba(118,75,162,0.2) 100%);
-        border-left: 3px solid #667eea;
-        color: #f1f5f9 !important;
-        font-weight: 600;
-    }
-    
-    /* Modern Headers */
-    h1, h2, h3 {
-        background: linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: 700 !important;
-        letter-spacing: -0.5px;
-    }
-    
-    /* Modern Tables/DataFrames */
-    .stDataFrame {
-        border-radius: var(--border-radius-lg) !important;
-        overflow: hidden !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-    }
-    
-    .stDataFrame > div > div > div {
-        background: rgba(255, 255, 255, 0.02) !important;
-    }
-    
-    .stDataFrame th {
-        background: linear-gradient(135deg, rgba(102,126,234,0.15) 0%, rgba(118,75,162,0.15) 100%) !important;
-        color: #f1f5f9 !important;
-        font-weight: 600 !important;
-        text-transform: uppercase;
-        font-size: 0.75rem !important;
-        letter-spacing: 1px;
-        padding: 1rem !important;
-    }
-    
-    .stDataFrame td {
-        background: rgba(255, 255, 255, 0.02) !important;
-        color: #e2e8f0 !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-        padding: 0.875rem !important;
-        transition: var(--transition-smooth);
-    }
-    
-    .stDataFrame tbody tr:hover td {
-        background: rgba(102, 126, 234, 0.05) !important;
-    }
-    
-    /* Modern Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: 16px;
-        padding: 0.25rem;
-        gap: 0.25rem;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background: transparent;
-        border-radius: 12px;
-        color: #94a3b8;
-        font-weight: 500;
-        padding: 0.75rem 1.5rem;
-        transition: var(--transition-smooth);
-    }
-    
-    .stTabs [data-baseweb="tab"]:hover {
-        background: rgba(102, 126, 234, 0.1);
-        color: #f1f5f9;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-    }
-    
-    /* Modern Expanders */
-    .streamlit-expanderHeader {
-        background: linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(118,75,162,0.1) 100%);
-        border-radius: 12px !important;
-        color: #f1f5f9 !important;
-        font-weight: 600 !important;
-        transition: var(--transition-smooth);
-    }
-    
-    .streamlit-expanderHeader:hover {
-        background: linear-gradient(135deg, rgba(102,126,234,0.2) 0%, rgba(118,75,162,0.2) 100%);
-        transform: translateX(4px);
-    }
-    
-    /* Progress Bars */
-    .stProgress > div > div {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
-    }
-    
-    /* Dividers */
-    hr {
-        border: none;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(102,126,234,0.5), transparent);
-        margin: 2rem 0;
-    }
-    
-    /* Success/Error/Warning/Info Messages */
-    .stSuccess, .stError, .stWarning, .stInfo {
-        border-radius: 12px !important;
-        border-left: 4px solid;
-        backdrop-filter: blur(10px);
-        padding: 1rem !important;
-        font-weight: 500;
+    /* Messages d'erreur visibles */
+    .stError {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
     }
     
     .stSuccess {
-        background: linear-gradient(135deg, rgba(11,163,96,0.1) 0%, rgba(60,186,146,0.1) 100%);
-        border-left-color: #0ba360;
-    }
-    
-    .stError {
-        background: linear-gradient(135deg, rgba(245,87,108,0.1) 0%, rgba(240,147,251,0.1) 100%);
-        border-left-color: #f5576c;
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
     }
     
     .stWarning {
-        background: linear-gradient(135deg, rgba(251,188,4,0.1) 0%, rgba(255,152,0,0.1) 100%);
-        border-left-color: #fbbc04;
-    }
-    
-    .stInfo {
-        background: linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(118,75,162,0.1) 100%);
-        border-left-color: #667eea;
-    }
-    
-    /* Slider Modern */
-    .stSlider > div > div {
-        background: rgba(255, 255, 255, 0.1) !important;
-        border-radius: 10px;
-    }
-    
-    .stSlider [data-baseweb="slider-track-filled"] {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%) !important;
-    }
-    
-    .stSlider [data-baseweb="slider-thumb"] {
-        background: white !important;
-        box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3) !important;
-    }
-    
-    /* Modern Checkbox */
-    .stCheckbox label {
-        color: #e2e8f0 !important;
-        font-weight: 500;
-        transition: var(--transition-smooth);
-    }
-    
-    .stCheckbox label:hover {
-        color: #f1f5f9 !important;
-        padding-left: 0.25rem;
-    }
-    
-    /* Animations */
-    @keyframes pulse-glow {
-        0%, 100% { box-shadow: 0 0 20px rgba(102, 126, 234, 0.5); }
-        50% { box-shadow: 0 0 40px rgba(102, 126, 234, 0.8); }
-    }
-    
-    @keyframes slide-in {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-    
-    /* Apply slide-in animation to elements */
-    .element-container {
-        animation: slide-in 0.5s ease-out;
-    }
-    
-    /* Modern Plotly Charts */
-    .js-plotly-plot {
-        border-radius: var(--border-radius-lg);
-        overflow: hidden;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-    }
-    
-    /* Spinner Modern */
-    .stSpinner > div {
-        border-color: #667eea !important;
-    }
-    
-    /* Download Button */
-    .stDownloadButton > button {
-        background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%) !important;
-    }
-    
-    /* Date Input */
-    .stDateInput > div > div > input {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        color: #f1f5f9 !important;
-        border-radius: 12px !important;
-    }
-    
-    /* Number Input */
-    .stNumberInput > div > div > input {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        color: #f1f5f9 !important;
-        border-radius: 12px !important;
-    }
-    
-    /* File Uploader */
-    .stFileUploader > div {
-        background: rgba(255, 255, 255, 0.03) !important;
-        border: 2px dashed rgba(102, 126, 234, 0.3) !important;
-        border-radius: 16px !important;
-        transition: var(--transition-smooth);
-    }
-    
-    .stFileUploader > div:hover {
-        border-color: rgba(102, 126, 234, 0.6) !important;
-        background: rgba(102, 126, 234, 0.05) !important;
+        background-color: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeaa7;
     }
 </style>
 """, unsafe_allow_html=True)
 
-DB_CONFIG = {
-    'host': os.getenv("POSTGRES_HOST", "db"),
-    'port': int(os.getenv("POSTGRES_PORT", "5432")),
-    'dbname': os.getenv("POSTGRES_DB", "scraper_pro"),
-    'user': os.getenv("POSTGRES_USER", "scraper_admin"),
-    'password': os.getenv("POSTGRES_PASSWORD", "scraper"),
-    'connect_timeout': 10,
-    'application_name': 'dashboard_streamlit'
-}
+# ============================================================================
+# FONCTIONS UTILITAIRES
+# ============================================================================
 
-# ============================================================================
-# UTILITAIRES DB (version sûre : on ouvre/ferme à chaque requête)
-# ============================================================================
+def get_lang():
+    """Récupère la langue sélectionnée"""
+    if 'language' not in st.session_state:
+        st.session_state.language = 'fr'
+    return st.session_state.language
+
+def t(key):
+    """Fonction de traduction"""
+    lang = get_lang()
+    return TRANSLATIONS.get(lang, TRANSLATIONS['fr']).get(key, key)
+
 def get_db_connection():
-    """Ouvre une nouvelle connexion PostgreSQL (pas de cache)."""
-    return psycopg2.connect(**DB_CONFIG)
+    """Connexion à la base de données"""
+    config = {
+        'host': os.getenv("POSTGRES_HOST", "db"),
+        'port': int(os.getenv("POSTGRES_PORT", "5432")),
+        'dbname': os.getenv("POSTGRES_DB", "scraper_pro"),
+        'user': os.getenv("POSTGRES_USER", "scraper_admin"),
+        'password': os.getenv("POSTGRES_PASSWORD", "scraper"),
+        'connect_timeout': 10,
+        'application_name': 'dashboard_streamlit'
+    }
+    return psycopg2.connect(**config)
 
 def execute_query(query: str, params: tuple = None, fetch: str = 'all'):
-    """
-    Exécute une requête en ouvrant sa propre connexion.
-    Le contexte 'with' fait COMMIT automatique si succès, ROLLBACK si exception.
-    """
+    """Exécute une requête de manière sécurisée"""
     try:
-        with psycopg2.connect(**DB_CONFIG) as conn:
+        with get_db_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(query, params or ())
                 if fetch == 'all':
@@ -500,21 +273,11 @@ def execute_query(query: str, params: tuple = None, fetch: str = 'all'):
                 elif fetch == 'none':
                     return True
     except Exception as e:
-        st.error(f"Erreur requête: {e}")
+        st.error(f"Erreur base de données: {e}")
         return None
 
-@st.cache_data(ttl=300)
-def table_has_column(table_name: str, column_name: str) -> bool:
-    sql = """
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_name = %s AND column_name = %s
-    LIMIT 1
-    """
-    res = execute_query(sql, (table_name, column_name), fetch='one')
-    return bool(res)
-
 def validate_url(url: str) -> bool:
+    """Validation d'URL"""
     url_pattern = re.compile(
         r'^https?://'
         r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}\.?|'
@@ -526,1280 +289,639 @@ def validate_url(url: str) -> bool:
     return bool(url_pattern.match(url))
 
 # ============================================================================
-# MISE À NIVEAU SCHÉMA (préventif, non destructif)
+# AUTHENTIFICATION SIMPLIFIÉE
 # ============================================================================
-@st.cache_data(ttl=600, show_spinner=False)
-def ensure_schema() -> bool:
-    statements: List[str] = []
 
-    statements += ["""
-        CREATE TABLE IF NOT EXISTS settings (
-            key   text PRIMARY KEY,
-            value text,
-            updated_at timestamptz DEFAULT NOW()
-        )
-    """]
-
-    statements += [
-        """
-        CREATE TABLE IF NOT EXISTS queue (
-            id serial PRIMARY KEY,
-            url text NOT NULL,
-            status text NOT NULL DEFAULT 'pending',
-            created_at timestamptz NOT NULL DEFAULT NOW(),
-            updated_at timestamptz NOT NULL DEFAULT NOW()
-        )
-        """,
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS theme text",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS country_filter text",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS lang_filter text",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS use_js boolean NOT NULL DEFAULT false",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS max_pages_per_domain integer NOT NULL DEFAULT 25",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS priority integer NOT NULL DEFAULT 10",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS retry_count integer NOT NULL DEFAULT 0",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS max_retries integer NOT NULL DEFAULT 3",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS contacts_extracted integer NOT NULL DEFAULT 0",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS last_error text",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS next_retry_at timestamptz",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS session_id integer",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS target_count integer DEFAULT 0",
-        "ALTER TABLE queue ADD COLUMN IF NOT EXISTS deleted_at timestamptz",
-        "CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status)",
-        "CREATE INDEX IF NOT EXISTS idx_queue_updated_at ON queue(updated_at)"
-    ]
-
-    statements += [
-        """
-        CREATE TABLE IF NOT EXISTS contacts (
-            id serial PRIMARY KEY,
-            name text,
-            email text,
-            org text,
-            phone text,
-            url text,
-            theme text,
-            country text,
-            page_lang text,
-            verified boolean NOT NULL DEFAULT false,
-            created_at timestamptz NOT NULL DEFAULT NOW(),
-            updated_at timestamptz NOT NULL DEFAULT NOW(),
-            deleted_at timestamptz
-        )
-        """,
-        "CREATE INDEX IF NOT EXISTS idx_contacts_created_at ON contacts(created_at)",
-        "CREATE INDEX IF NOT EXISTS idx_contacts_country ON contacts(country)"
-    ]
-
-    statements += [
-        """
-        CREATE TABLE IF NOT EXISTS proxies (
-            id serial PRIMARY KEY,
-            label text,
-            scheme text NOT NULL DEFAULT 'http',
-            host text NOT NULL,
-            port integer NOT NULL,
-            username text,
-            password text,
-            active boolean NOT NULL DEFAULT true,
-            priority integer NOT NULL DEFAULT 10,
-            response_time_ms integer,
-            success_rate double precision DEFAULT 1.0,
-            total_requests integer NOT NULL DEFAULT 0,
-            failed_requests integer NOT NULL DEFAULT 0,
-            last_used_at timestamptz,
-            last_test_at timestamptz,
-            last_test_status text,
-            country_code text,
-            provider text,
-            cost_per_gb numeric,
-            created_at timestamptz NOT NULL DEFAULT NOW(),
-            updated_at timestamptz NOT NULL DEFAULT NOW(),
-            created_by text,
-            UNIQUE (scheme, host, port, username)
-        )
-        """,
-        "CREATE INDEX IF NOT EXISTS idx_proxies_active ON proxies(active)",
-        "CREATE INDEX IF NOT EXISTS idx_proxies_priority ON proxies(priority)"
-    ]
-
-    ok = True
-    for stmt in statements:
-        res = execute_query(stmt, fetch='none')
-        ok = ok and bool(res)
-
-    upsert_scheduler = """
-    INSERT INTO settings(key, value, updated_at)
-    VALUES ('scheduler_paused', 'false', NOW())
-    ON CONFLICT (key) DO NOTHING
-    """
-    ok = ok and bool(execute_query(upsert_scheduler, fetch='none'))
-    return ok
-
-# ============================================================================
-# AUTH
-# ============================================================================
-def require_authentication() -> bool:
+def require_authentication():
+    """Authentification simple et claire"""
     if st.session_state.get("authenticated"):
         return True
-
-    st.markdown("""
-        <div style="
-            max-width: 480px;
-            margin: 10vh auto;
-            background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 24px;
-            padding: 3rem;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        ">
-            <div style="
-                text-align: center;
-                margin-bottom: 2rem;
-            ">
-                <div style="
-                    font-size: 4rem;
-                    margin-bottom: 1rem;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    -webkit-background-clip: text;
-                    background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                ">🕷️</div>
-                <h2 style="
-                    margin: 0;
-                    background: linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%);
-                    -webkit-background-clip: text;
-                    background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                    font-size: 2rem;
-                    font-weight: 800;
-                    letter-spacing: -1px;
-                ">Scraper Pro</h2>
-                <p style="
-                    color: #94a3b8;
-                    margin-top: 0.5rem;
-                    font-size: 0.95rem;
-                ">Connectez-vous pour accéder au dashboard</p>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        with st.form("login_form", clear_on_submit=False):
-            username = st.text_input("👤 Utilisateur", placeholder="admin")
-            password = st.text_input("🔒 Mot de passe", type="password")
-
-            col_a, col_b = st.columns(2)
-            with col_a:
-                login_button = st.form_submit_button("🚀 Connexion", use_container_width=True, type="primary")
-            with col_b:
-                if st.form_submit_button("ℹ️ Indices", use_container_width=True):
-                    st.info(f"**Utilisateur suggéré:** {os.getenv('DASHBOARD_USERNAME', 'admin')}")
-
-            if login_button:
-                env_user = os.getenv("DASHBOARD_USERNAME", "admin")
-                env_pass = os.getenv("DASHBOARD_PASSWORD", "admin123")
-
-                if username == env_user and password == env_pass:
-                    st.session_state["authenticated"] = True
-                    st.session_state["username"] = username
-                    st.session_state["login_time"] = datetime.now()
-                    st.success("✅ Connexion réussie!")
-                    time.sleep(0.8)
-                    st.rerun()
-                else:
-                    st.error("❌ Identifiants invalides")
-
+    
+    st.title(t('app_title'))
+    
+    with st.container():
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col2:
+            st.subheader(t('login_title'))
+            
+            with st.form("login_form"):
+                username = st.text_input(t('username'), value="admin")
+                password = st.text_input(t('password'), type="password")
+                
+                if st.form_submit_button(t('login_button'), use_container_width=True, type="primary"):
+                    env_user = os.getenv("DASHBOARD_USERNAME", "admin")
+                    env_pass = os.getenv("DASHBOARD_PASSWORD", "admin123")
+                    
+                    if username == env_user and password == env_pass:
+                        st.session_state["authenticated"] = True
+                        st.session_state["username"] = username
+                        st.success("✅ Connexion réussie!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Identifiants incorrects")
+    
     return False
 
 # ============================================================================
-# NAVIGATION
+# INTERFACE PRINCIPALE
 # ============================================================================
+
 def render_sidebar():
+    """Sidebar simplifiée avec navigation claire"""
     with st.sidebar:
-        st.markdown(f"""
-            <div style="
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                padding: 1.5rem;
-                border-radius: 20px;
-                color: white;
-                margin-bottom: 1.5rem;
-                box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
-                text-align: center;
-            ">
-                <h2 style="margin: 0 0 0.5rem 0; font-weight: 800; font-size: 1.5rem;">🕷️ Scraper Pro</h2>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 0.9rem;">👤 {st.session_state.get('username', 'admin')}</span>
-                    <span style="font-size: 0.9rem;">⏰ {datetime.now().strftime('%H:%M')}</span>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-        with st.container():
-            system_status = get_system_status()
-            if system_status:
-                if system_status['db_connected']:
-                    st.success("🟢 Système Opérationnel")
-                else:
-                    st.error("🔴 Problème Base de Données")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Jobs", system_status.get('pending_jobs', 0))
-                with col2:
-                    st.metric("Proxies", system_status.get('active_proxies', 0))
-            else:
-                st.warning("⚠️ Chargement...")
-
-        st.divider()
-
-        pages = {
-            "📊 Dashboard": "dashboard",
-            "🎯 Jobs Manager": "jobs",
-            "📇 Contacts Explorer": "contacts",
-            "🌐 Proxy Management": "proxies",
-            "🗂️ Sessions": "sessions",
-            "📈 Analytics": "analytics",
-            "⚙️ Settings": "settings",
-            "🔧 System Monitor": "monitor"
-        }
-        selected_page = st.radio("📋 Navigation", list(pages.keys()), key="nav_radio")
-
-        st.divider()
-        st.subheader("⚡ Actions Rapides")
+        st.title("🕷️ Scraper Pro")
+        
+        # Sélecteur de langue
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔄 Refresh", use_container_width=True):
-                st.cache_data.clear()
+            selected_lang = st.selectbox(
+                "🌐", 
+                options=list(LANGUAGES.keys()),
+                format_func=lambda x: LANGUAGES[x],
+                index=list(LANGUAGES.keys()).index(get_lang()),
+                key="language_selector"
+            )
+            if selected_lang != get_lang():
+                st.session_state.language = selected_lang
                 st.rerun()
+        
         with col2:
-            if st.button("🚪 Déconnexion", use_container_width=True):
+            if st.button(t('logout_button')):
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
-
-        with st.expander("ℹ️ Info Système", expanded=False):
-            st.text(f"Version: 2.0 Production")
-            st.text(f"Uptime: {get_system_uptime()}")
-            st.text(f"DB: PostgreSQL")
-            st.text(f"Host: {DB_CONFIG['host']}")
-
+        
+        st.divider()
+        
+        # Navigation principale
+        pages = {
+            t('dashboard'): "dashboard",
+            t('jobs_manager'): "jobs", 
+            t('contacts_explorer'): "contacts",
+            t('proxy_management'): "proxies",
+            t('settings'): "settings"
+        }
+        
+        selected_page = st.radio(
+            "📋 Navigation", 
+            list(pages.keys()), 
+            key="nav_radio"
+        )
+        
+        st.divider()
+        
+        # État du système
+        system_status = get_system_status()
+        if system_status and system_status.get('db_connected'):
+            st.success(t('system_healthy'))
+        else:
+            st.error(t('system_error'))
+            
         return pages[selected_page]
 
-def get_system_status() -> Dict:
+def get_system_status():
+    """Vérification de l'état du système"""
     try:
-        with psycopg2.connect(**DB_CONFIG) as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT COUNT(*) as count FROM queue WHERE status = 'pending'")
-                pending_jobs = cur.fetchone()['count']
-                cur.execute("SELECT COUNT(*) as count FROM proxies WHERE active = true")
-                active_proxies = cur.fetchone()['count']
-                cur.execute("SELECT value FROM settings WHERE key = 'scheduler_paused'")
-                scheduler_result = cur.fetchone()
-                scheduler_paused = scheduler_result and str(scheduler_result['value']).lower() == 'true'
-        return {'db_connected': True,'pending_jobs': pending_jobs,'active_proxies': active_proxies,'scheduler_paused': scheduler_paused}
-    except Exception:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                return {'db_connected': True}
+    except:
         return {'db_connected': False}
 
-def get_system_uptime() -> str:
-    login_time = st.session_state.get('login_time')
-    if login_time:
-        uptime = datetime.now() - login_time
-        hours = int(uptime.total_seconds() // 3600)
-        minutes = int((uptime.total_seconds() % 3600) // 60)
-        return f"{hours}h {minutes}m"
-    return "N/A"
+# ============================================================================
+# PAGES PRINCIPALES
+# ============================================================================
 
-# ============================================================================
-# PAGES
-# ============================================================================
 def page_dashboard():
-    st.title("📊 Dashboard Principal")
-
-    if st.button("🔄 Auto-Refresh (30s)", key="auto_refresh"):
-        time.sleep(30)
-        st.rerun()
-
-    with st.container():
-        col1, col2, col3, col4, col5 = st.columns(5)
-        metrics_query = """
-        SELECT 
-            (SELECT COUNT(*) FROM queue WHERE status = 'pending') as pending_jobs,
-            (SELECT COUNT(*) FROM queue WHERE status = 'in_progress') as running_jobs,
-            (SELECT COUNT(*) FROM queue WHERE status = 'done' AND DATE(updated_at) = CURRENT_DATE) as completed_today,
-            (SELECT COUNT(*) FROM contacts WHERE DATE(created_at) = CURRENT_DATE) as contacts_today,
-            (SELECT COUNT(*) FROM proxies WHERE active = true) as active_proxies
-        """
-        metrics = execute_query(metrics_query, fetch='one')
+    """Tableau de bord principal avec métriques claires"""
+    st.title(t('dashboard'))
+    
+    # Métriques principales
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    try:
+        metrics = execute_query("""
+            SELECT 
+                (SELECT COUNT(*) FROM queue WHERE status = 'pending') as pending_jobs,
+                (SELECT COUNT(*) FROM queue WHERE status = 'in_progress') as active_jobs,
+                (SELECT COUNT(*) FROM queue WHERE status = 'done' AND DATE(updated_at) = CURRENT_DATE) as completed_jobs,
+                (SELECT COUNT(*) FROM contacts WHERE DATE(created_at) = CURRENT_DATE) as total_contacts,
+                (SELECT COUNT(*) FROM proxies WHERE active = true) as active_proxies
+        """, fetch='one')
+        
         if metrics:
             with col1:
-                st.metric("🔄 En attente", metrics['pending_jobs'])
+                st.metric(t('pending_jobs'), metrics['pending_jobs'])
             with col2:
-                st.metric("⚡ En cours", metrics['running_jobs'])
+                st.metric(t('active_jobs'), metrics['active_jobs'])  
             with col3:
-                st.metric("✅ Terminés", metrics['completed_today'])
+                st.metric(t('completed_jobs'), metrics['completed_jobs'])
             with col4:
-                st.metric("👥 Contacts", metrics['contacts_today'])
+                st.metric(t('total_contacts'), metrics['total_contacts'])
             with col5:
-                st.metric("🌐 Proxies", metrics['active_proxies'])
+                st.metric(t('active_proxies'), metrics['active_proxies'])
+                
+            # Alerte si pas de proxies
+            if metrics['active_proxies'] == 0:
+                st.error(t('no_proxies_warning'))
+                if st.button(t('configure_proxies'), type="primary"):
+                    st.session_state.nav_radio = list(TRANSLATIONS[get_lang()].values())[4]  # Proxy Management
+                    st.rerun()
+    
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des métriques: {e}")
 
-    st.divider()
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("📈 Activité des 7 derniers jours")
-        activity_query = """
-        SELECT 
-            DATE(updated_at) as date,
-            COUNT(*) FILTER (WHERE status = 'done') as completed,
-            COUNT(*) FILTER (WHERE status = 'failed') as failed,
-            SUM(contacts_extracted) FILTER (WHERE contacts_extracted > 0) as total_contacts
-        FROM queue 
-        WHERE updated_at >= CURRENT_DATE - INTERVAL '7 days'
-        GROUP BY DATE(updated_at)
-        ORDER BY date
-        """
-        activity_data = execute_query(activity_query)
-        if activity_data:
-            df_activity = pd.DataFrame(activity_data)
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=df_activity['date'], 
-                y=df_activity['completed'], 
-                name='Jobs Réussis', 
-                line=dict(color='#0ba360', width=3),
-                mode='lines+markers',
-                marker=dict(size=8)
-            ))
-            fig.add_trace(go.Scatter(
-                x=df_activity['date'], 
-                y=df_activity['failed'], 
-                name='Jobs Échoués', 
-                line=dict(color='#f5576c', width=3),
-                mode='lines+markers',
-                marker=dict(size=8)
-            ))
-            fig.update_layout(
-                title="Performance des Jobs",
-                xaxis_title="Date",
-                yaxis_title="Nombre de Jobs",
-                height=350,
-                template="plotly_dark",
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#e2e8f0'),
-                hovermode='x unified'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        st.subheader("🌍 Répartition par Pays")
-        countries_query = """
-        SELECT country, COUNT(*) as count 
-        FROM contacts 
-        WHERE country IS NOT NULL 
-          AND created_at >= CURRENT_DATE - INTERVAL '30 days'
-        GROUP BY country 
-        ORDER BY count DESC 
-        LIMIT 10
-        """
-        countries_data = execute_query(countries_query)
-        if countries_data:
-            df_countries = pd.DataFrame(countries_data)
-            fig = px.pie(
-                df_countries, 
-                values='count', 
-                names='country', 
-                title="Top 10 Pays (30 derniers jours)",
-                color_discrete_sequence=px.colors.sequential.Viridis
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            fig.update_layout(
-                height=350,
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#e2e8f0'),
-                showlegend=False
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("🔥 Jobs Récents")
-        recent_jobs_query = """
-        SELECT id, url, status, theme, retry_count, updated_at,
-               CASE 
-                   WHEN status = 'done' THEN '✅'
-                   WHEN status = 'failed' THEN '❌'
-                   WHEN status = 'in_progress' THEN '⚡'
-                   ELSE '🔄'
-               END as status_icon
-        FROM queue 
-        ORDER BY updated_at DESC 
-        LIMIT 10
-        """
-        recent_jobs = execute_query(recent_jobs_query)
-        if recent_jobs:
-            df_jobs = pd.DataFrame(recent_jobs)
-            df_jobs['url_short'] = df_jobs['url'].str[:40] + '...'
+def page_jobs():
+    """Gestionnaire de jobs avec interface claire"""
+    st.title(t('jobs_manager'))
+    
+    # Formulaire de création de job proéminent
+    with st.expander(t('create_job'), expanded=True):
+        with st.form("job_form", clear_on_submit=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                url = st.text_input(
+                    t('job_url'),
+                    placeholder="https://example.com",
+                    help="URL du site à analyser pour extraire les contacts"
+                )
+                
+                country = st.selectbox(
+                    t('job_country'),
+                    options=["", "France", "United States", "Canada", "Germany", "Spain"],
+                    help="Pays cible pour filtrer les résultats"
+                )
+                
+                theme = st.selectbox(
+                    t('job_theme'),
+                    options=["lawyers", "doctors", "consultants", "real-estate", "restaurants"],
+                    help="Type de professionnels à rechercher"
+                )
+            
+            with col2:
+                language = st.selectbox(
+                    t('job_language'),
+                    options=["", "fr", "en", "es", "de"],
+                    help="Langue du contenu à analyser"
+                )
+                
+                use_js = st.checkbox(
+                    t('use_javascript'),
+                    value=False,
+                    help="Activer pour les sites avec contenu dynamique"
+                )
+                
+                max_pages = st.number_input(
+                    t('max_pages'),
+                    min_value=1,
+                    max_value=100,
+                    value=25,
+                    help="Nombre maximum de pages à analyser par domaine"
+                )
+            
+            # Boutons d'action clairs
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                test_button = st.form_submit_button(
+                    t('test_url_button'),
+                    use_container_width=True
+                )
+            
+            with col_b:
+                create_button = st.form_submit_button(
+                    t('create_job_button'),
+                    use_container_width=True,
+                    type="primary"
+                )
+            
+            # Actions des boutons
+            if test_button and url:
+                if validate_url(url):
+                    st.success("✅ URL valide et accessible")
+                else:
+                    st.error("❌ URL invalide ou inaccessible")
+            
+            if create_button and url:
+                if not validate_url(url):
+                    st.error("❌ Veuillez entrer une URL valide")
+                else:
+                    # Vérifier les proxies
+                    proxy_count = execute_query("SELECT COUNT(*) as count FROM proxies WHERE active = true", fetch='one')
+                    if not proxy_count or proxy_count['count'] == 0:
+                        st.error("❌ Aucun proxy configuré ! Configurez des proxies avant de lancer un job.")
+                        if st.button("Aller à la gestion des proxies"):
+                            st.switch_page("proxies")
+                    else:
+                        # Créer le job
+                        try:
+                            execute_query("""
+                                INSERT INTO queue (
+                                    url, country_filter, lang_filter, theme, 
+                                    use_js, max_pages_per_domain, status, created_by
+                                ) VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s)
+                            """, (
+                                url, country or None, language or None, theme,
+                                use_js, max_pages, st.session_state.get('username', 'dashboard')
+                            ), fetch='none')
+                            
+                            st.success("🚀 Job de scraping lancé avec succès!")
+                            st.balloons()
+                            time.sleep(2)
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"❌ Erreur lors de la création du job: {e}")
+    
+    # Liste des jobs récents
+    st.subheader("Jobs Récents")
+    try:
+        jobs = execute_query("""
+            SELECT id, url, status, theme, created_at, updated_at,
+                   CASE 
+                       WHEN status = 'done' THEN '✅'
+                       WHEN status = 'failed' THEN '❌'
+                       WHEN status = 'in_progress' THEN '⚡'
+                       ELSE '⏳'
+                   END as status_icon
+            FROM queue 
+            ORDER BY created_at DESC 
+            LIMIT 20
+        """)
+        
+        if jobs:
+            df = pd.DataFrame(jobs)
+            df['url_short'] = df['url'].str[:50] + '...'
+            
             st.dataframe(
-                df_jobs[['status_icon', 'id', 'url_short', 'theme', 'updated_at']],
+                df[['status_icon', 'id', 'url_short', 'theme', 'status', 'created_at']],
                 hide_index=True,
                 use_container_width=True,
                 column_config={
-                    'status_icon': st.column_config.TextColumn("Status", width=60),
+                    'status_icon': st.column_config.TextColumn("", width=40),
                     'id': st.column_config.NumberColumn("ID", width=60),
                     'url_short': st.column_config.TextColumn("URL"),
                     'theme': st.column_config.TextColumn("Thème", width=100),
-                    'updated_at': st.column_config.DatetimeColumn("Mis à jour", width=120)
+                    'status': st.column_config.TextColumn("Status", width=100),
+                    'created_at': st.column_config.DatetimeColumn("Créé le", width=150)
                 }
             )
-    
-    with col2:
-        st.subheader("⚠️ Alertes & Problèmes")
-        alerts_query = """
-        SELECT 'Jobs bloqués' as alert_type, COUNT(*) as count, '🚨' as icon
-        FROM queue WHERE status = 'in_progress' AND updated_at < NOW() - INTERVAL '2 hours'
-        UNION ALL
-        SELECT 'Proxies défaillants', COUNT(*), '🔴' FROM proxies WHERE active = true AND success_rate < 0.7
-        """
-        alerts = execute_query(alerts_query)
-        if alerts:
-            for a in alerts:
-                if a['count'] > 0:
-                    st.warning(f"{a['icon']} {a['alert_type']}: {a['count']}")
-
-        scheduler_status = get_system_status()
-        if scheduler_status.get('scheduler_paused'):
-            st.error("⏸️ Scheduler en PAUSE")
         else:
-            st.success("▶️ Scheduler ACTIF")
+            st.info("Aucun job trouvé. Créez votre premier job ci-dessus!")
+            
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des jobs: {e}")
 
-def page_jobs():
-    st.title("🎯 Jobs Manager")
-
-    with st.expander("➕ Nouveau Job", expanded=True):
-        with st.form("create_job_form", clear_on_submit=False):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                url = st.text_input("🔗 URL", placeholder="https://example.com")
-                country = st.selectbox("🌍 Pays", [""] + COUNTRIES, index=0, placeholder="(optionnel)")
-                theme = st.selectbox("🏷️ Thème", ["lawyers", "doctors", "consultants", "real-estate", "restaurants"])
-            with col2:
-                language = st.selectbox("🗣️ Langue", ["", "fr", "en", "es", "de", "th", "ru", "zh"], index=0, placeholder="(optionnel)")
-                use_js = st.checkbox("🚀 Utiliser JavaScript", value=False)
-                max_pages = st.slider("📄 Max pages/domaine", 1, 200, 25)
-            with col3:
-                priority = st.slider("⭐ Priorité", 1, 100, 10)
-                sessions_query = "SELECT id, domain, type FROM sessions WHERE active = true ORDER BY domain"
-                sessions = execute_query(sessions_query)
-                session_options = {"Aucune": None}
-                if sessions:
-                    session_options.update({f"{s['domain']} ({s['type']})": s['id'] for s in sessions})
-                selected_session = st.selectbox("🗂️ Session", list(session_options.keys()))
-                session_id = session_options[selected_session]
-                target_count = st.number_input("🎯 Contacts cibles", min_value=0, value=0, help="0 = illimité")
-
-            col_a, col_b, col_c = st.columns([2, 1, 1])
-            with col_a:
-                create_job = st.form_submit_button("🚀 Créer Job", use_container_width=True, type="primary")
-            with col_b:
-                test_url = st.form_submit_button("🧪 Test URL", use_container_width=True)
-            with col_c:
-                quick_job = st.form_submit_button("⚡ Job Express", use_container_width=True)
-
-            if test_url and url:
-                st.success("✅ URL valide" if validate_url(url) else "❌ URL invalide")
-
-            insert_query = """
-            INSERT INTO queue (
-                url, country_filter, lang_filter, theme, use_js, 
-                max_pages_per_domain, priority, session_id, target_count,
-                created_by, status
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
-            """
-            if create_job and url:
-                if not validate_url(url):
-                    st.error("❌ URL invalide")
-                else:
-                    params = (
-                        url, country or None, language or None, theme, use_js,
-                        max_pages, priority, session_id, target_count,
-                        st.session_state.get('username', 'dashboard')
-                    )
-                    if execute_query(insert_query, params, fetch='none'):
-                        st.success("✅ Job créé avec succès!")
-                        time.sleep(0.6)
-                        st.rerun()
-                    else:
-                        st.error("❌ Erreur lors de la création")
-
-            if quick_job and url and validate_url(url):
-                quick_params = (url, None, None, "lawyers", False, 15, 10, None, 0, "quick")
-                if execute_query(insert_query, quick_params, fetch='none'):
-                    st.success("⚡ Job express créé!")
-                    st.rerun()
-
-    st.divider()
-    st.subheader("🔍 Filtres & Recherche")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        status_filter = st.multiselect("Status", ["pending", "in_progress", "done", "failed"], default=[])
-        theme_filter = st.multiselect("Thème", ["lawyers", "doctors", "consultants","real-estate","restaurants"], default=[])
-    with col2:
-        date_from = st.date_input("Date début", value=datetime.now().date() - timedelta(days=7))
-        date_to = st.date_input("Date fin", value=datetime.now().date())
-    with col3:
-        search_url = st.text_input("🔍 Recherche URL", placeholder="Tapez pour chercher...")
-        limit = st.selectbox("Limite résultats", [50, 100, 250, 500], index=1)
-    with col4:
-        sort_by = st.selectbox("Trier par", ["updated_at", "created_at", "priority", "retry_count"])
-        sort_order = st.selectbox("Ordre", ["DESC", "ASC"])
-
-    cols_priority = "priority" if table_has_column("queue", "priority") else "10 as priority"
-    cols_contacts = "contacts_extracted" if table_has_column("queue", "contacts_extracted") else "0 as contacts_extracted"
-    cols_maxretries = "max_retries" if table_has_column("queue", "max_retries") else "3 as max_retries"
-    cols_lasterr = "last_error" if table_has_column("queue", "last_error") else "NULL as last_error"
-    cols_nextretry = "next_retry_at" if table_has_column("queue", "next_retry_at") else "NULL as next_retry_at"
-
-    base_query = f"""
-    SELECT 
-        id, url, status, theme, country_filter, lang_filter, 
-        use_js, {cols_priority} as priority, retry_count, {cols_maxretries} as max_retries, {cols_contacts} as contacts_extracted,
-        created_at, updated_at, {cols_lasterr} as last_error, {cols_nextretry} as next_retry_at,
-        CASE 
-            WHEN status = 'done' THEN '✅'
-            WHEN status = 'failed' THEN '❌'
-            WHEN status = 'in_progress' THEN '⚡'
-            WHEN status = 'pending' AND retry_count > 0 THEN '🔄'
-            ELSE '⏳'
-        END as status_icon
-    FROM queue WHERE 1=1
-    """
-    params = []
-    if status_filter:
-        placeholders = ','.join(['%s'] * len(status_filter))
-        base_query += f" AND status IN ({placeholders})"
-        params.extend(status_filter)
-    if theme_filter:
-        placeholders = ','.join(['%s'] * len(theme_filter))
-        base_query += f" AND theme IN ({placeholders})"
-        params.extend(theme_filter)
-    if search_url:
-        base_query += " AND url ILIKE %s"
-        params.append(f"%{search_url}%")
-    base_query += f" AND DATE(created_at) BETWEEN %s AND %s"
-    params.extend([date_from, date_to])
-
-    safe_sort_by = sort_by
-    if sort_by == "priority" and not table_has_column("queue", "priority"):
-        safe_sort_by = "created_at"
-    if sort_by == "retry_count" and not table_has_column("queue", "retry_count"):
-        safe_sort_by = "created_at"
-
-    base_query += f" ORDER BY {safe_sort_by} {sort_order} LIMIT %s"
-    params.append(limit)
-    jobs_data = execute_query(base_query, tuple(params))
-
-    if jobs_data:
-        df_jobs = pd.DataFrame(jobs_data)
-        st.subheader("⚡ Actions en Lot")
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            if st.button("⏸️ Pause Sélectionnés"):
-                st.info("Sélection via case à cocher à implémenter côté worker.")
-        with col2:
-            if st.button("▶️ Resume Sélectionnés"):
-                st.info("Sélection via case à cocher à implémenter côté worker.")
-        with col3:
-            if st.button("🔄 Retry Échoués"):
-                retry_query = "UPDATE queue SET status = 'pending', retry_count = 0 WHERE status = 'failed'"
-                if execute_query(retry_query, fetch='none'):
-                    st.success("✅ Jobs échoués remis en file")
-                    st.rerun()
-        with col4:
-            if st.button("🗑️ Supprimer Anciens"):
-                cleanup_query = """
-                UPDATE queue SET deleted_at = NOW() 
-                WHERE status IN ('done', 'failed') AND updated_at < NOW() - INTERVAL '7 days'
-                """
-                if execute_query(cleanup_query, fetch='none'):
-                    st.success("✅ Anciens jobs supprimés")
-                    st.rerun()
-        with col5:
-            if st.button("📊 Export CSV"):
-                csv = df_jobs.to_csv(index=False)
-                st.download_button(
-                    "⬇️ Télécharger",
-                    data=csv,
-                    file_name=f"jobs_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-
-        st.subheader(f"📋 Jobs ({len(df_jobs)} résultats)")
-        df_display = df_jobs.copy()
-        df_display['url_short'] = df_display['url'].str[:60] + '...'
-        df_display['error_short'] = df_display['last_error'].fillna('').str[:50]
-        st.dataframe(
-            df_display[['status_icon','id','url_short','theme','priority','retry_count','contacts_extracted','updated_at']],
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                'status_icon': st.column_config.TextColumn("", width=40),
-                'id': st.column_config.NumberColumn("ID", width=60),
-                'url_short': st.column_config.TextColumn("URL"),
-                'theme': st.column_config.TextColumn("Thème", width=100),
-                'priority': st.column_config.NumberColumn("Priorité", width=80),
-                'retry_count': st.column_config.NumberColumn("Retry", width=60),
-                'contacts_extracted': st.column_config.NumberColumn("Contacts", width=80),
-                'updated_at': st.column_config.DatetimeColumn("Mis à jour", width=130)
-            }
-        )
-    else:
-        st.info("Aucun job trouvé avec ces critères")
-
-# ---------------------- CONTACTS --------------------------------------------
-def page_contacts():
-    st.title("📇 Contacts Explorer")
-
-    stats_query = """
-    SELECT 
-        COUNT(*) as total_contacts,
-        COUNT(*) FILTER (WHERE DATE(created_at) = CURRENT_DATE) as today_contacts,
-        COUNT(*) FILTER (WHERE verified = true) as verified_contacts,
-        COUNT(DISTINCT country) as unique_countries,
-        COUNT(DISTINCT theme) as unique_themes,
-        COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days') as week_contacts
-    FROM contacts WHERE deleted_at IS NULL
-    """
-    stats = execute_query(stats_query, fetch='one')
-    if stats:
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        with col1:
-            st.metric("📊 Total", f"{stats['total_contacts']:,}")
-        with col2:
-            st.metric("📈 Aujourd'hui", stats['today_contacts'])
-        with col3:
-            st.metric("✅ Vérifiés", stats['verified_contacts'])
-        with col4:
-            st.metric("🌍 Pays", stats['unique_countries'])
-        with col5:
-            st.metric("🏷️ Thèmes", stats['unique_themes'])
-        with col6:
-            st.metric("📅 Cette semaine", stats['week_contacts'])
-
-    st.divider()
-    st.subheader("🔍 Filtres Avancés")
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        selected_country = st.selectbox("🌍 Pays", ["Tous"] + COUNTRIES, index=0, placeholder="Tous")
-        themes_query = "SELECT DISTINCT theme FROM contacts WHERE theme IS NOT NULL ORDER BY theme"
-        themes_data = execute_query(themes_query) or []
-        themes = ["Tous"] + [t['theme'] for t in themes_data]
-        selected_theme = st.selectbox("🏷️ Thème", themes, index=0)
-    with col2:
-        search_text = st.text_input("🔍 Recherche", placeholder="Nom, email, organisation...")
-        verified_filter = st.selectbox("Vérification", ["Tous", "Vérifiés", "Non vérifiés"], index=0)
-    with col3:
-        date_from = st.date_input("📅 Date début", value=datetime.now().date() - timedelta(days=30))
-        date_to = st.date_input("📅 Date fin", value=datetime.now().date())
-    with col4:
-        sort_options = {
-            "Plus récents": "created_at DESC",
-            "Plus anciens": "created_at ASC",
-            "Nom A-Z": "name ASC",
-            "Nom Z-A": "name DESC",
-            "Pays A-Z": "country ASC"
-        }
-        sort_by = st.selectbox("🔄 Tri", list(sort_options.keys()), index=0)
-        limit = st.selectbox("📊 Limite", [100, 250, 500, 1000], index=1)
-
-    base_contacts_query = """
-    SELECT id, name, email, org, phone, country, theme, verified, created_at, updated_at, page_lang, url,
-           CASE WHEN verified THEN '✅' ELSE '⏳' END as verified_icon
-    FROM contacts 
-    WHERE deleted_at IS NULL
-    """
-    contacts_params = []
-    if selected_country != "Tous":
-        base_contacts_query += " AND country = %s"
-        contacts_params.append(selected_country)
-    if selected_theme != "Tous":
-        base_contacts_query += " AND theme = %s"
-        contacts_params.append(selected_theme)
-    if search_text:
-        base_contacts_query += " AND (name ILIKE %s OR email ILIKE %s OR org ILIKE %s)"
-        search_param = f"%{search_text}%"
-        contacts_params.extend([search_param, search_param, search_param])
-    if verified_filter == "Vérifiés":
-        base_contacts_query += " AND verified = true"
-    elif verified_filter == "Non vérifiés":
-        base_contacts_query += " AND verified = false"
-    base_contacts_query += " AND DATE(created_at) BETWEEN %s AND %s"
-    contacts_params.extend([date_from, date_to])
-    base_contacts_query += f" ORDER BY {sort_options[sort_by]} LIMIT %s"
-    contacts_params.append(limit)
-
-    contacts_data = execute_query(base_contacts_query, tuple(contacts_params))
-
-    if contacts_data:
-        df_contacts = pd.DataFrame(contacts_data)
-        st.subheader("⚡ Actions sur les Contacts")
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        with col1:
-            if st.button("✅ Marquer Vérifiés"):
-                st.info("Sélectionnez d'abord les contacts")
-        with col2:
-            if st.button("📧 Valider Emails"):
-                st.info("Validation email côté worker à brancher.")
-        with col3:
-            if st.button("🧹 Déduplication"):
-                dedup_query = """
-                WITH duplicates AS (
-                    SELECT id, email, ROW_NUMBER() OVER (PARTITION BY email ORDER BY created_at ASC) as rn
-                    FROM contacts WHERE deleted_at IS NULL AND email IS NOT NULL AND email <> ''
-                )
-                UPDATE contacts SET deleted_at = NOW() 
-                WHERE id IN (SELECT id FROM duplicates WHERE rn > 1)
-                """
-                if execute_query(dedup_query, fetch='none'):
-                    st.success("✅ Doublons supprimés")
-                    st.rerun()
-        with col4:
-            if st.button("📊 Export CSV"):
-                csv_data = df_contacts.to_csv(index=False)
-                st.download_button(
-                    "⬇️ Télécharger CSV",
-                    data=csv_data,
-                    file_name=f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-        with col5:
-            if st.button("📈 Export Excel"):
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df_contacts.to_excel(writer, sheet_name='Contacts', index=False)
-                    workbook = writer.book
-                    worksheet = writer.sheets['Contacts']
-                    header_format = workbook.add_format({
-                        'bold': True,
-                        'bg_color': '#4F81BD',
-                        'font_color': 'white'
-                    })
-                    for col_num, value in enumerate(df_contacts.columns.values):
-                        worksheet.write(0, col_num, value, header_format)
-                st.download_button(
-                    "⬇️ Télécharger Excel",
-                    data=output.getvalue(),
-                    file_name=f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        with col6:
-            if st.button("📧 Export Emails"):
-                emails_list = df_contacts['email'].dropna().tolist()
-                emails_text = '\n'.join(emails_list)
-                st.download_button(
-                    "⬇️ Liste Emails",
-                    data=emails_text,
-                    file_name=f"emails_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain"
-                )
-
-        st.subheader(f"📋 Contacts ({len(df_contacts):,} résultats)")
-        df_display = df_contacts.copy()
-        df_display['name_display'] = df_display['name'].fillna('N/A').str[:30]
-        df_display['email_display'] = df_display['email'].astype(str).str[:35]
-        df_display['org_display'] = df_display['org'].fillna('N/A').str[:25]
-        st.dataframe(
-            df_display[['verified_icon','name_display','email_display','org_display','phone','country','theme','created_at']],
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                'verified_icon': st.column_config.TextColumn("✓", width=30),
-                'name_display': st.column_config.TextColumn("Nom", width=120),
-                'email_display': st.column_config.TextColumn("Email", width=140),
-                'org_display': st.column_config.TextColumn("Organisation", width=120),
-                'phone': st.column_config.TextColumn("Téléphone", width=120),
-                'country': st.column_config.TextColumn("Pays", width=80),
-                'theme': st.column_config.TextColumn("Thème", width=100),
-                'created_at': st.column_config.DatetimeColumn("Créé le", width=110)
-            }
-        )
-
-        st.subheader("📊 Statistiques de la Sélection")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            verified_count = len(df_contacts[df_contacts['verified'] == True])
-            verified_rate = (verified_count / len(df_contacts) * 100) if len(df_contacts) > 0 else 0
-            st.metric("Taux Vérification", f"{verified_rate:.1f}%")
-        with col2:
-            st.metric("Pays Uniques", df_contacts['country'].nunique())
-        with col3:
-            st.metric("Thèmes Uniques", df_contacts['theme'].nunique())
-        with col4:
-            has_phone = len(df_contacts[df_contacts['phone'].notna()])
-            phone_rate = (has_phone / len(df_contacts) * 100) if len(df_contacts) > 0 else 0
-            st.metric("Avec Téléphone", f"{phone_rate:.1f}%")
-    else:
-        st.info("🔍 Aucun contact trouvé avec ces critères de recherche")
-        st.markdown("**Suggestions :**\n- Élargir la période de dates\n- Supprimer certains filtres\n- Vérifier l'orthographe des termes de recherche")
-
-# ---------------------- PROXIES ---------------------------------------------
 def page_proxies():
-    st.title("🌐 Proxy Management")
-
-    proxy_stats_query = """
-    SELECT 
-        COUNT(*) as total_proxies,
-        COUNT(*) FILTER (WHERE active = true) as active_proxies,
-        COUNT(*) FILTER (WHERE last_test_status = 'success') as working_proxies,
-        COUNT(*) FILTER (WHERE last_test_status = 'failed') as failed_proxies,
-        AVG(response_time_ms) FILTER (WHERE response_time_ms > 0) as avg_response_time,
-        AVG(success_rate) as avg_success_rate
-    FROM proxies
-    """
-    proxy_stats = execute_query(proxy_stats_query, fetch='one')
-    if proxy_stats:
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        with col1:
-            st.metric("📊 Total", proxy_stats['total_proxies'])
-        with col2:
-            st.metric("🟢 Actifs", proxy_stats['active_proxies'])
-        with col3:
-            st.metric("✅ Fonctionnels", proxy_stats['working_proxies'] or 0)
-        with col4:
-            st.metric("❌ En échec", proxy_stats['failed_proxies'] or 0)
-        with col5:
-            avg_time = proxy_stats['avg_response_time']
-            st.metric("⏱️ Temps moy.", f"{avg_time:.0f}ms" if avg_time else "N/A")
-        with col6:
-            avg_rate = proxy_stats['avg_success_rate']
-            st.metric("📈 Taux succès", f"{avg_rate:.1f}%" if avg_rate else "N/A")
-
-    st.divider()
-    st.subheader("➕ Ajouter des Proxies")
-    tab1, tab2, tab3 = st.tabs(["📝 Proxy Unique", "📋 Import en Masse", "🔧 Import Avancé"])
-
-    with tab1:
-        with st.form("add_single_proxy"):
-            col1, col2, col3 = st.columns(3)
+    """Gestion des proxies avec interface intuitive"""
+    st.title(t('proxy_management'))
+    
+    # Ajouter un proxy - Interface simplifiée
+    with st.expander(t('add_proxy'), expanded=True):
+        st.info("💡 **Pourquoi des proxies ?** Les proxies permettent d'éviter les blocages lors du scraping en distribuant les requêtes sur plusieurs IP.")
+        
+        with st.form("proxy_form"):
+            col1, col2 = st.columns(2)
+            
             with col1:
-                label = st.text_input("🏷️ Label", placeholder="Proxy France 1")
-                scheme = st.selectbox("🔌 Type", ["http", "https", "socks5"])
-                host = st.text_input("🌐 Host/IP", placeholder="1.2.3.4")
-                port = st.number_input("📟 Port", min_value=1, max_value=65535, value=8080)
+                proxy_type = st.selectbox(
+                    t('proxy_type'),
+                    options=["http", "https", "socks5"],
+                    help="Type de connexion proxy"
+                )
+                
+                host = st.text_input(
+                    t('proxy_host'),
+                    placeholder="192.168.1.100 ou proxy.example.com",
+                    help="Adresse IP ou nom de domaine du proxy"
+                )
+                
+                port = st.number_input(
+                    t('proxy_port'),
+                    min_value=1,
+                    max_value=65535,
+                    value=8080,
+                    help="Port de connexion (généralement 8080, 3128, 1080)"
+                )
+            
             with col2:
-                username = st.text_input("👤 Username (optionnel)")
-                password = st.text_input("🔒 Password (optionnel)", type="password")
-                priority = st.slider("⭐ Priorité", 1, 100, 10)
-                active = st.checkbox("✅ Actif", value=True)
+                username = st.text_input(
+                    t('proxy_username'),
+                    help="Nom d'utilisateur (optionnel)"
+                )
+                
+                password = st.text_input(
+                    t('proxy_password'),
+                    type="password",
+                    help="Mot de passe (optionnel)"
+                )
+                
+                active = st.checkbox("Activer immédiatement", value=True)
+            
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                test_button = st.form_submit_button(t('test_proxy_button'))
+            
+            with col_b:
+                add_button = st.form_submit_button(t('add_proxy_button'), type="primary")
+            
+            if add_button and host and port:
+                try:
+                    execute_query("""
+                        INSERT INTO proxies (scheme, host, port, username, password, active, created_by)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (scheme, host, port, COALESCE(username, '')) DO UPDATE SET
+                            active = EXCLUDED.active,
+                            updated_at = NOW()
+                    """, (
+                        proxy_type, host, port,
+                        username if username else None,
+                        password if password else None,
+                        active, st.session_state.get('username', 'dashboard')
+                    ), fetch='none')
+                    
+                    st.success("✅ Proxy ajouté avec succès!")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Erreur lors de l'ajout du proxy: {e}")
+    
+    # Liste des proxies existants
+    st.subheader("Proxies Configurés")
+    try:
+        proxies = execute_query("""
+            SELECT 
+                id, scheme, host, port, username, active,
+                CASE WHEN active THEN '🟢' ELSE '🔴' END as status_icon,
+                CASE 
+                    WHEN username IS NOT NULL THEN CONCAT(scheme, '://', username, ':***@', host, ':', port)
+                    ELSE CONCAT(scheme, '://', host, ':', port)
+                END as proxy_url,
+                created_at
+            FROM proxies 
+            ORDER BY active DESC, created_at DESC
+        """)
+        
+        if proxies:
+            df = pd.DataFrame(proxies)
+            st.dataframe(
+                df[['status_icon', 'proxy_url', 'active', 'created_at']],
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    'status_icon': st.column_config.TextColumn("État", width=50),
+                    'proxy_url': st.column_config.TextColumn("Configuration Proxy"),
+                    'active': st.column_config.CheckboxColumn("Actif", width=70),
+                    'created_at': st.column_config.DatetimeColumn("Ajouté le", width=150)
+                }
+            )
+            
+            st.success(f"✅ {len(df)} proxy(s) configuré(s)")
+        else:
+            st.warning("⚠️ Aucun proxy configuré. Ajoutez des proxies pour activer le scraping.")
+            st.info("""
+            **Comment obtenir des proxies ?**
+            
+            1. **Proxies gratuits** : ProxyList, HideMy.name (qualité variable)
+            2. **Proxies payants** : BrightData, Oxylabs, ProxyMesh (recommandé pour production)
+            3. **VPS/Serveurs** : Configurer vos propres proxies sur AWS, DigitalOcean
+            
+            **Format supporté :**
+            - `IP:Port` (ex: 192.168.1.100:8080)
+            - Avec authentification : utilisez les champs username/password
+            """)
+            
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des proxies: {e}")
+
+def page_contacts():
+    """Explorateur de contacts avec interface claire"""
+    st.title(t('contacts_explorer'))
+    
+    # Statistiques des contacts
+    try:
+        stats = execute_query("""
+            SELECT 
+                COUNT(*) as total_contacts,
+                COUNT(*) FILTER (WHERE DATE(created_at) = CURRENT_DATE) as today_contacts,
+                COUNT(*) FILTER (WHERE verified = true) as verified_contacts,
+                COUNT(DISTINCT country) as unique_countries,
+                COUNT(DISTINCT theme) as unique_themes
+            FROM contacts WHERE deleted_at IS NULL
+        """, fetch='one')
+        
+        if stats:
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("📊 Total", f"{stats['total_contacts']:,}")
+            with col2:
+                st.metric("📈 Aujourd'hui", stats['today_contacts'])
             with col3:
-                country_code = st.text_input("🏳️ Code Pays", placeholder="FR", max_chars=2)
-                provider = st.text_input("🏢 Fournisseur", placeholder="ProxyProvider")
-                cost_per_gb = st.number_input("💰 Coût/GB", min_value=0.0, value=0.0, step=0.01)
-
-            if st.form_submit_button("➕ Ajouter Proxy", use_container_width=True, type="primary") and host and port:
-                upsert_query = """
-                INSERT INTO proxies (
-                    label, scheme, host, port, username, password, priority, active,
-                    country_code, provider, cost_per_gb, created_by
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (scheme, host, port, username) DO UPDATE SET
-                    label = EXCLUDED.label,
-                    priority = EXCLUDED.priority,
-                    active = EXCLUDED.active,
-                    country_code = COALESCE(EXCLUDED.country_code, proxies.country_code),
-                    provider = COALESCE(EXCLUDED.provider, proxies.provider),
-                    cost_per_gb = COALESCE(EXCLUDED.cost_per_gb, proxies.cost_per_gb),
-                    updated_at = NOW()
-                """
-                params = (
-                    label or f"{host}:{port}", scheme, host, port,
-                    username or None, password or None, priority, active,
-                    country_code.upper() or None, provider or None, cost_per_gb,
-                    st.session_state.get('username', 'dashboard')
-                )
-                execute_query(upsert_query, params, fetch='none')
-                st.success("✅ Proxy ajouté/mis à jour avec succès!")
-                time.sleep(0.6)
-                st.rerun()
-
-    with tab2:
-        st.info("💡 **Formats supportés:**\n- `IP:PORT`\n- `IP:PORT:USER:PASS`\n- `SCHEME://IP:PORT`\n- `SCHEME://USER:PASS@IP:PORT`")
-        bulk_input = st.text_area(
-            "Liste de proxies (un par ligne)",
-            height=200,
-            placeholder="""192.168.1.1:8080
-192.168.1.2:8080:user:pass
-http://proxy.example.com:3128
-socks5://user:pass@proxy.example.com:1080"""
-        )
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            bulk_scheme = st.selectbox("🔌 Type par défaut", ["http", "https", "socks5"], key="bulk_scheme")
-            bulk_priority = st.slider("⭐ Priorité par défaut", 1, 100, 10, key="bulk_priority")
-        with col2:
-            bulk_active = st.checkbox("✅ Tous actifs", value=True, key="bulk_active")
-            auto_test = st.checkbox("🧪 Test automatique", value=True)
-        with col3:
-            bulk_country = st.text_input("🏳️ Code pays", placeholder="FR", key="bulk_country", max_chars=2)
-            bulk_provider = st.text_input("🏢 Fournisseur", key="bulk_provider")
-
-        if st.button("📥 Importer Proxies en Masse", use_container_width=True, type="primary"):
-            if bulk_input.strip():
-                import_results = import_bulk_proxies(
-                    bulk_input, bulk_scheme, bulk_priority, bulk_active,
-                    bulk_country, bulk_provider, auto_test
-                )
-                if import_results:
-                    st.success(f"✅ {import_results['added']} proxies importés!")
-                    if import_results['failed'] > 0:
-                        st.warning(f"⚠️ {import_results['failed']} lignes ignorées")
-                    if import_results['duplicates'] > 0:
-                        st.info(f"ℹ️ {import_results['duplicates']} doublons mis à jour")
-                    st.rerun()
-
-    with tab3:
-        st.subheader("🔧 Import depuis Fichier")
-        uploaded_file = st.file_uploader(
-            "Choisir un fichier proxy",
-            type=['txt','csv'],
-            help="Fichier texte ou CSV avec une liste de proxies"
-        )
-        if uploaded_file:
-            content = uploaded_file.read().decode('utf-8', errors='ignore')
-            st.text_area(
-                "Aperçu du contenu",
-                content[:500] + ("..." if len(content) > 500 else ""),
-                height=150,
-                disabled=True
-            )
-            if st.button("📥 Importer depuis Fichier"):
-                results = import_bulk_proxies(content, "http", 10, True, "", "", False)
-                if results:
-                    st.success(f"✅ Import terminé: {results['added']} ajoutés, {results['failed']} échoués")
-                    st.rerun()
-
+                st.metric("✅ Vérifiés", stats['verified_contacts'])
+            with col4:
+                st.metric("🌍 Pays", stats['unique_countries'])
+            with col5:
+                st.metric("🏷️ Thèmes", stats['unique_themes'])
+    
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des statistiques: {e}")
+    
     st.divider()
-    st.subheader("⚡ Actions en Lot")
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    with col1:
-        if st.button("✅ Activer Tous", use_container_width=True):
-            if execute_query("UPDATE proxies SET active = true, updated_at = NOW()", fetch='none'):
-                st.success("✅ Tous les proxies activés")
-                st.rerun()
-    with col2:
-        if st.button("⏸️ Désactiver Tous", use_container_width=True):
-            if execute_query("UPDATE proxies SET active = false, updated_at = NOW()", fetch='none'):
-                st.warning("⏸️ Tous les proxies désactivés")
-                st.rerun()
-    with col3:
-        if st.button("🧪 Test Tous Actifs", use_container_width=True):
-            with st.spinner("Test des proxies en cours..."):
-                test_results = test_all_proxies()
-                if test_results:
-                    st.info(f"🧪 Test terminé: {test_results['tested']} proxies testés")
-                    st.rerun()
-    with col4:
-        if st.button("🗑️ Suppr. Inactifs", use_container_width=True):
-            if execute_query("DELETE FROM proxies WHERE active = false", fetch='none'):
-                st.success("🗑️ Proxies inactifs supprimés")
-                st.rerun()
-    with col5:
-        if st.button("🔄 Reset Stats", use_container_width=True):
-            reset_query = """
-            UPDATE proxies SET 
-                total_requests = 0, failed_requests = 0, success_rate = 1.0,
-                response_time_ms = 0, last_test_at = NULL, last_test_status = NULL
-            """
-            if execute_query(reset_query, fetch='none'):
-                st.success("🔄 Statistiques réinitialisées")
-                st.rerun()
-    with col6:
-        if st.button("📊 Export Config", use_container_width=True):
-            export_data = export_proxy_config()
-            if export_data:
-                st.download_button(
-                    "⬇️ Télécharger",
-                    data=export_data,
-                    file_name=f"proxy_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json"
-                )
-
-    st.subheader("📊 Monitoring des Proxies")
+    
+    # Filtres de recherche
     col1, col2, col3 = st.columns(3)
+    
     with col1:
-        status_filter = st.selectbox("Status", ["Tous","Actifs","Inactifs","Fonctionnels","En échec"])
+        search_text = st.text_input("🔍 Rechercher", placeholder="Nom, email, organisation...")
+    
     with col2:
-        country_filter = st.selectbox("Pays", ["Tous"] + get_unique_proxy_countries())
+        countries = execute_query("SELECT DISTINCT country FROM contacts WHERE country IS NOT NULL ORDER BY country") or []
+        country_options = ["Tous"] + [c['country'] for c in countries]
+        selected_country = st.selectbox("🌍 Pays", country_options)
+    
     with col3:
-        sort_proxy = st.selectbox("Trier par", ["Priorité","Temps réponse","Taux succès","Dernière utilisation"])
-
-    proxies_query = build_proxy_query(status_filter, country_filter, sort_proxy)
-    proxies_data = execute_query(proxies_query)
-    if proxies_data:
-        df_proxies = pd.DataFrame(proxies_data)
-        st.dataframe(
-            df_proxies,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                'status_icon': st.column_config.TextColumn("", width=40),
-                'label': st.column_config.TextColumn("Label", width=120),
-                'proxy_url': st.column_config.TextColumn("Proxy", width=220),
-                'country_code': st.column_config.TextColumn("Pays", width=60),
-                'response_time_ms': st.column_config.ProgressColumn(
-                    "Temps (ms)",
-                    min_value=0,
-                    max_value=5000,
-                    format="%.0f ms"
-                ),
-                'success_rate': st.column_config.ProgressColumn(
-                    "Succès %",
-                    min_value=0.0,
-                    max_value=1.0,
-                    format="%.1%"
-                ),
-                'total_requests': st.column_config.NumberColumn("Total Req.", width=90),
-                'last_used_at': st.column_config.DatetimeColumn("Dernière util.", width=150)
-            }
-        )
-        col1, col2 = st.columns(2)
-        with col1:
-            if 'response_time_ms' in df_proxies.columns:
-                fig_response = px.histogram(
-                    df_proxies[df_proxies['response_time_ms'] > 0],
-                    x='response_time_ms',
-                    title="Distribution des Temps de Réponse",
-                    nbins=20,
-                    template="plotly_dark"
-                )
-                fig_response.update_layout(
-                    height=300,
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='#e2e8f0')
-                )
-                st.plotly_chart(fig_response, use_container_width=True)
-        with col2:
-            if 'country_code' in df_proxies.columns:
-                country_counts = df_proxies['country_code'].fillna('N/A').value_counts()
-                fig_countries = px.pie(
-                    values=country_counts.values,
-                    names=country_counts.index,
-                    title="Répartition par Pays",
-                    color_discrete_sequence=px.colors.sequential.Viridis
-                )
-                fig_countries.update_layout(
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='#e2e8f0')
-                )
-                st.plotly_chart(fig_countries, use_container_width=True)
-    else:
-        st.info("Aucun proxy trouvé")
-
-# ---------------------- PROXIES UTILS ---------------------------------------
-def import_bulk_proxies(content: str, default_scheme: str, default_priority: int,
-                        default_active: bool, default_country: str, default_provider: str,
-                        auto_test: bool) -> dict:
-    results = {'added': 0, 'failed': 0, 'duplicates': 0}
-    for line_num, line in enumerate(content.strip().split('\n'), 1):
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        try:
-            proxy_info = parse_proxy_line(line, default_scheme)
-            if not proxy_info:
-                results['failed'] += 1
-                continue
-            upsert_query = """
-            INSERT INTO proxies (
-                label, scheme, host, port, username, password, priority, active,
-                country_code, provider, created_by
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (scheme, host, port, username) DO UPDATE SET
-                label = EXCLUDED.label,
-                priority = EXCLUDED.priority,
-                active = EXCLUDED.active,
-                updated_at = NOW()
-            RETURNING (xmax = 0) as inserted
-            """
-            params = (
-                proxy_info.get('label', f"{proxy_info['host']}:{proxy_info['port']}"),
-                proxy_info['scheme'], proxy_info['host'], proxy_info['port'],
-                proxy_info.get('username'), proxy_info.get('password'),
-                default_priority, default_active,
-                default_country.upper() if default_country else None,
-                default_provider or None,
-                st.session_state.get('username', 'bulk_import')
+        themes = execute_query("SELECT DISTINCT theme FROM contacts WHERE theme IS NOT NULL ORDER BY theme") or []
+        theme_options = ["Tous"] + [t['theme'] for t in themes]
+        selected_theme = st.selectbox("🏷️ Thème", theme_options)
+    
+    # Liste des contacts
+    try:
+        # Construction de la requête avec filtres
+        where_conditions = ["deleted_at IS NULL"]
+        params = []
+        
+        if search_text:
+            where_conditions.append("(name ILIKE %s OR email ILIKE %s OR org ILIKE %s)")
+            search_param = f"%{search_text}%"
+            params.extend([search_param, search_param, search_param])
+        
+        if selected_country != "Tous":
+            where_conditions.append("country = %s")
+            params.append(selected_country)
+        
+        if selected_theme != "Tous":
+            where_conditions.append("theme = %s") 
+            params.append(selected_theme)
+        
+        query = f"""
+            SELECT 
+                name, email, org, phone, country, theme, verified, created_at,
+                CASE WHEN verified THEN '✅' ELSE '⏳' END as verified_icon
+            FROM contacts 
+            WHERE {' AND '.join(where_conditions)}
+            ORDER BY created_at DESC 
+            LIMIT 500
+        """
+        
+        contacts = execute_query(query, tuple(params))
+        
+        if contacts:
+            df = pd.DataFrame(contacts)
+            
+            # Actions sur les contacts
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("📊 Export CSV", use_container_width=True):
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        "⬇️ Télécharger CSV",
+                        data=csv,
+                        file_name=f"contacts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+            
+            with col2:
+                if st.button("📧 Export Emails", use_container_width=True):
+                    emails = df['email'].dropna().tolist()
+                    emails_text = '\n'.join(emails)
+                    st.download_button(
+                        "⬇️ Liste Emails",
+                        data=emails_text,
+                        file_name=f"emails_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        mime="text/plain"
+                    )
+            
+            with col3:
+                st.metric("Résultats", len(df))
+            
+            # Affichage du tableau
+            st.dataframe(
+                df[['verified_icon', 'name', 'email', 'org', 'phone', 'country', 'theme', 'created_at']],
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    'verified_icon': st.column_config.TextColumn("✓", width=30),
+                    'name': st.column_config.TextColumn("Nom", width=150),
+                    'email': st.column_config.TextColumn("Email", width=200),
+                    'org': st.column_config.TextColumn("Organisation", width=150),
+                    'phone': st.column_config.TextColumn("Téléphone", width=120),
+                    'country': st.column_config.TextColumn("Pays", width=80),
+                    'theme': st.column_config.TextColumn("Thème", width=100),
+                    'created_at': st.column_config.DatetimeColumn("Ajouté le", width=120)
+                }
             )
-            result = execute_query(upsert_query, params, fetch='one')
-            if result and result['inserted']:
-                results['added'] += 1
-            else:
-                results['duplicates'] += 1
+        else:
+            st.info("🔍 Aucun contact trouvé avec ces critères de recherche")
+            
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des contacts: {e}")
+
+def page_settings():
+    """Page de paramètres système"""
+    st.title(t('settings'))
+    
+    # Configuration générale
+    st.subheader("⚙️ Configuration Générale")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.info("**Variables d'environnement actuelles:**")
+        env_vars = {
+            'POSTGRES_HOST': os.getenv('POSTGRES_HOST', 'Non défini'),
+            'POSTGRES_DB': os.getenv('POSTGRES_DB', 'Non défini'),
+            'POSTGRES_USER': os.getenv('POSTGRES_USER', 'Non défini'),
+            'DASHBOARD_USERNAME': os.getenv('DASHBOARD_USERNAME', 'Non défini'),
+        }
+        
+        for var, value in env_vars.items():
+            st.text(f"{var}: {value}")
+    
+    with col2:
+        st.info("**Statistiques système:**")
+        try:
+            db_stats = execute_query("""
+                SELECT 
+                    (SELECT COUNT(*) FROM queue) as total_jobs,
+                    (SELECT COUNT(*) FROM contacts) as total_contacts,
+                    (SELECT COUNT(*) FROM proxies) as total_proxies,
+                    (SELECT MAX(created_at) FROM queue) as last_job_created
+            """, fetch='one')
+            
+            if db_stats:
+                st.text(f"Jobs total: {db_stats['total_jobs']}")
+                st.text(f"Contacts total: {db_stats['total_contacts']}")
+                st.text(f"Proxies total: {db_stats['total_proxies']}")
+                st.text(f"Dernier job: {db_stats['last_job_created'] or 'Aucun'}")
         except Exception as e:
-            st.warning(f"Erreur ligne {line_num}: {line} - {e}")
-            results['failed'] += 1
-
-    if auto_test and results['added'] > 0:
-        test_all_proxies()
-    return results
-
-def parse_proxy_line(line: str, default_scheme: str) -> Optional[Dict]:
-    full_match = re.match(r'^(\w+)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$', line)
-    if full_match:
-        scheme, username, password, host, port = full_match.groups()
-        return {
-            'scheme': scheme,
-            'host': host,
-            'port': int(port),
-            'username': username,
-            'password': password
-        }
-    parts = line.split(':')
-    if len(parts) >= 2:
-        try:
-            host = parts[0]
-            port = int(parts[1])
-            username = parts[2] if len(parts) > 2 else None
-            password = parts[3] if len(parts) > 3 else None
-            return {
-                'scheme': default_scheme,
-                'host': host,
-                'port': port,
-                'username': username,
-                'password': password
-            }
-        except ValueError:
-            return None
-    return None
-
-def test_all_proxies() -> dict:
-    import requests
-    from concurrent.futures import ThreadPoolExecutor
-    proxies = execute_query("SELECT id, scheme, host, port, username, password FROM proxies WHERE active = true")
-    if not proxies:
-        return {'tested': 0}
-    results = {'tested': 0, 'working': 0, 'failed': 0}
-
-    def build_url(p):
-        if p.get('username') and p.get('password'):
-            return f"{p['scheme']}://{p['username']}:{p['password']}@{p['host']}:{p['port']}"
-        return f"{p['scheme']}://{p['host']}:{p['port']}"
-
-    def test_single(p):
-        pid = p['id']
-        proxy_url = build_url(p)
-        try:
-            start = time.time()
-            r = requests.get('http://httpbin.org/ip', proxies={'http': proxy_url, 'https': proxy_url}, timeout=10)
-            rt = int((time.time() - start) * 1000)
-            if r.status_code == 200:
-                execute_query("""
-                    UPDATE proxies SET last_test_at = NOW(), last_test_status = 'success',
-                        response_time_ms = %s,
-                        success_rate = CASE WHEN total_requests = 0 THEN 1.0 
-                            ELSE (total_requests - failed_requests + 1.0) / (total_requests + 1.0) END,
-                        total_requests = total_requests + 1
-                    WHERE id = %s
-                """, (rt, pid), fetch='none')
-                results['working'] += 1
-            else:
-                raise Exception(f"HTTP {r.status_code}")
-        except Exception:
-            execute_query("""
-                UPDATE proxies SET last_test_at = NOW(), last_test_status = 'failed',
-                    success_rate = CASE WHEN total_requests = 0 THEN 0.0 
-                        ELSE (total_requests - failed_requests) / (total_requests + 1.0) END,
-                    total_requests = total_requests + 1, failed_requests = failed_requests + 1
-                WHERE id = %s
-            """, (pid,), fetch='none')
-            results['failed'] += 1
-        results['tested'] += 1
-
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        ex.map(test_single, proxies)
-    return results
-
-def get_unique_proxy_countries() -> List[str]:
-    result = execute_query("SELECT DISTINCT country_code FROM proxies WHERE country_code IS NOT NULL ORDER BY country_code")
-    return [r['country_code'] for r in (result or [])]
-
-def build_proxy_query(status_filter: str, country_filter: str, sort_option: str) -> str:
-    base_query = """
-    SELECT 
-        id, label, scheme, host, port, username, active, priority,
-        COALESCE(response_time_ms,0) as response_time_ms,
-        COALESCE(success_rate,0.0) as success_rate,
-        COALESCE(total_requests,0) as total_requests,
-        COALESCE(failed_requests,0) as failed_requests,
-        last_used_at, last_test_at, last_test_status, country_code,
-        provider, created_at,
-        CASE 
-            WHEN active = false THEN '⏸️'
-            WHEN last_test_status = 'success' THEN '🟢'
-            WHEN last_test_status = 'failed' THEN '🔴'
-            ELSE '⚪'
-        END as status_icon,
-        CASE 
-            WHEN username IS NOT NULL THEN CONCAT(scheme, '://', username, ':***@', host, ':', port)
-            ELSE CONCAT(scheme, '://', host, ':', port)
-        END as proxy_url
-    FROM proxies WHERE 1=1
-    """
-    if status_filter == "Actifs":
-        base_query += " AND active = true"
-    elif status_filter == "Inactifs":
-        base_query += " AND active = false"
-    elif status_filter == "Fonctionnels":
-        base_query += " AND last_test_status = 'success'"
-    elif status_filter == "En échec":
-        base_query += " AND last_test_status = 'failed'"
-
-    if country_filter != "Tous":
-        base_query += f" AND country_code = '{country_filter}'"
+            st.error(f"Erreur stats: {e}")
     
-    if sort_option == "Priorité":
-        base_query += " ORDER BY active DESC, priority ASC"
-    elif sort_option == "Temps réponse":
-        base_query += " ORDER BY response_time_ms ASC NULLS LAST"
-    elif sort_option == "Taux succès":
-        base_query += " ORDER BY success_rate DESC"
-    elif sort_option == "Dernière utilisation":
-        base_query += " ORDER BY last_used_at DESC NULLS LAST"
+    st.divider()
     
-    return base_query
-
-def export_proxy_config() -> str:
-    proxies = execute_query("""
-    SELECT scheme, host, port, username, password, active, priority, country_code, provider
-    FROM proxies ORDER BY priority, id
-    """)
-    if proxies:
-        config = {
-            'proxies': proxies,
-            'export_date': datetime.now().isoformat(),
-            'total_count': len(proxies)
-        }
-        return json.dumps(config, indent=2, default=str)
-    return json.dumps({'proxies': [], 'export_date': datetime.now().isoformat()})
+    # Actions de maintenance
+    st.subheader("🧹 Maintenance")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🗑️ Nettoyer les anciens jobs", use_container_width=True):
+            try:
+                result = execute_query("""
+                    UPDATE queue SET deleted_at = NOW() 
+                    WHERE status IN ('done', 'failed') 
+                    AND updated_at < NOW() - INTERVAL '7 days'
+                """, fetch='none')
+                if result:
+                    st.success("✅ Anciens jobs supprimés")
+                else:
+                    st.info("ℹ️ Aucun ancien job à supprimer")
+            except Exception as e:
+                st.error(f"❌ Erreur: {e}")
+    
+    with col2:
+        if st.button("📊 Optimiser la base", use_container_width=True):
+            try:
+                execute_query("VACUUM ANALYZE", fetch='none')
+                st.success("✅ Base de données optimisée")
+            except Exception as e:
+                st.error(f"❌ Erreur: {e}")
+    
+    with col3:
+        if st.button("🔄 Redémarrer services", use_container_width=True):
+            st.warning("⚠️ Cette action nécessite un accès administrateur au serveur")
+            st.code("docker compose restart")
 
 # ============================================================================
-# MAIN
+# APPLICATION PRINCIPALE
 # ============================================================================
+
 def main():
+    """Application principale simplifiée"""
+    
+    # Vérification authentification
     if not require_authentication():
         return
     
-    ok_schema = ensure_schema()
-    if not ok_schema:
-        st.warning("⚠️ Impossible de vérifier le schéma de la base. Certaines fonctionnalités peuvent être limitées.")
-    
-    current_page = render_sidebar()
-    
+    # Navigation et affichage des pages
     try:
+        current_page = render_sidebar()
+        
+        # Affichage de la page sélectionnée
         if current_page == "dashboard":
             page_dashboard()
         elif current_page == "jobs":
@@ -1808,20 +930,11 @@ def main():
             page_contacts()
         elif current_page == "proxies":
             page_proxies()
-        elif current_page == "sessions":
-            st.title("🗂️ Session Management")
-            st.info("Upload, activation et gestion des storage_state Playwright.")
-        elif current_page == "analytics":
-            st.title("📈 Analytics")
-            st.info("Graphiques avancés et insights.")
         elif current_page == "settings":
-            st.title("⚙️ System Settings")
-            st.info("Configuration système, warm-up, scheduler.")
-        elif current_page == "monitor":
-            st.title("🔧 System Monitor")
-            st.info("Logs, métriques, health checks.")
+            page_settings()
         else:
             st.error("Page non trouvée")
+            
     except Exception as e:
         st.error(f"Erreur lors du chargement de la page: {e}")
         st.exception(e)

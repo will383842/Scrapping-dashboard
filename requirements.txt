@@ -1,6 +1,6 @@
 # ============================================================================
-# SCRAPER PRO - REQUIREMENTS PRODUCTION v2.1
-# Description: Dépendances complètes avec fonctionnalités avancées
+# SCRAPER PRO - REQUIREMENTS PRODUCTION v2.1 FIXED
+# Description: Dépendances complètes corrigées avec toutes les fonctionnalités
 # ============================================================================
 
 # ==========================================================================
@@ -18,7 +18,7 @@ psycopg2-binary==2.9.9
 sqlalchemy==2.0.23
 
 # ==========================================================================
-# REDIS & CACHE - NOUVEAU pour coordination
+# REDIS & CACHE - CORRIGÉ avec toutes les dépendances
 # ==========================================================================
 redis==5.0.1
 redis-py-cluster==2.1.3
@@ -58,7 +58,7 @@ langdetect==1.0.9
 textblob==0.17.1
 
 # ==========================================================================
-# URL & CONTENT PROCESSING - NOUVEAU pour anti-doublons
+# URL & CONTENT PROCESSING - Pour anti-doublons
 # ==========================================================================
 urltools==0.3.2         # URL normalization
 beautifulsoup4==4.12.2  # HTML parsing avancé
@@ -67,17 +67,16 @@ html5lib==1.1            # HTML parser robust
 bleach==6.1.0            # HTML sanitization
 
 # ==========================================================================
-# HASHING & CRYPTO - NOUVEAU pour content hashing
+# HASHING & CRYPTO - Pour content hashing
 # ==========================================================================
 xxhash==3.4.1            # Fast hashing pour content dedup
 hashlib-compat==1.0.1   # Hash compatibility
 mmh3==4.0.0              # MurmurHash3 for fast hashing
 
 # ==========================================================================
-# CONCURRENCY & ASYNC - NOUVEAU pour circuit breakers
+# CONCURRENCY & ASYNC - Pour circuit breakers
 # ==========================================================================
 asyncio-throttle==1.0.2 # Rate limiting async
-circuit-breaker==1.1.0  # Circuit breaker pattern
 tenacity==8.2.3          # Retry with backoff
 backoff==2.2.1           # Exponential backoff
 
@@ -104,6 +103,7 @@ jsonschema==4.20.0      # JSON validation
 cerberus==1.3.4          # Data validation
 email-validator==2.1.0   # Email validation
 phonenumberslite==8.13.25 # Phone validation
+validators==0.22.0       # URL and data validation
 
 # ==========================================================================
 # TIME & DATE HANDLING
@@ -164,8 +164,23 @@ alembic==1.13.0         # Database migrations
 SQLAlchemy-Utils==0.41.1 # SQLAlchemy utilities
 
 # ==========================================================================
-# SPECIALIZED UTILITIES
+# SPECIALIZED UTILITIES - AJOUTS POUR CORRECTIONS
 # ==========================================================================
 user-agents==2.2.0      # User agent parsing
 fake-useragent==1.4.0   # Random user agents
 robotparser==1.0.1      # robots.txt parsing
+
+# Circuit breaker pattern (alternative simple)
+pybreaker==0.8.1        # Circuit breaker implementation
+
+# Coordination et locks distribués
+portalocker==2.8.2      # File locking
+redis-lock==1.2.1       # Redis-based locks
+
+# Gestion d'erreurs robuste
+retrying==1.3.4          # Retry decorator
+circuitbreaker==1.4.0   # Alternative circuit breaker
+
+# Parsing et normalisation URLs
+furl==2.1.3              # URL manipulation
+yarl==1.9.4              # Yet another URL library

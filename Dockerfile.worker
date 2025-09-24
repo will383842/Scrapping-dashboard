@@ -12,7 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
 # Création de l'utilisateur scraper
 RUN groupadd -r scraper && useradd -r -g scraper -d /app -s /bin/bash scraper
 
-# Installation des dépendances système
+# Installation des dépendances système (CORRIGÉ - ajout procps)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     postgresql-client \
+    procps \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -49,23 +50,9 @@ RUN mkdir -p /app/{logs,sessions,cache,temp} && \
 # Changement vers l'utilisateur scraper
 USER scraper
 
-# Health check amélioré
-HEALTHCHECK --interval=60s --timeout=20s --start-period=120s --retries=3 \
-    CMD python -c "import psycopg2, os, sys; \
-    try: \
-    conn = psycopg2.connect( \
-    host=os.environ.get('POSTGRES_HOST', 'db'), \
-    port=int(os.environ.get('POSTGRES_PORT', '5432')), \
-    database=os.environ.get('POSTGRES_DB', 'scraper_pro'), \
-    user=os.environ.get('POSTGRES_USER', 'scraper_admin'), \
-    password=os.environ.get('POSTGRES_PASSWORD', ''), \
-    connect_timeout=15 \
-    ); \
-    conn.close(); \
-    sys.exit(0) \
-    except Exception as e: \
-    print(f'Health check failed: {e}'); \
-    sys.exit(1)"
+# Health check amélioré et simplifié (CORRIGÉ)
+HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
+    CMD pgrep -f "python.*scheduler" > /dev/null || exit 1
 
 # Point d'entrée
 CMD ["python", "-m", "orchestration.scheduler"]

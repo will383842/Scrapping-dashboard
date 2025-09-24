@@ -1,5 +1,10 @@
-from scraper.utils.error_categorizer import categorize
-from scraper.utils.circuit_breaker import open_cb
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+SCHEDULER.PY - ORCHESTRATION SCRAPER PRO (VERSION CORRIGÉE)
+Version: 2.0 Production-Ready Fixed
+Description: Scheduler robuste sans dépendances problématiques
+"""
 
 import os
 import time
@@ -37,7 +42,7 @@ DB = dict(
     dbname=os.getenv("POSTGRES_DB", "scraper_pro"),
     user=os.getenv("POSTGRES_USER", "scraper_admin"),
     password=os.getenv("POSTGRES_PASSWORD", "scraper"),
-    connect_timeout=10,
+    connect_timeout=int(os.getenv("POSTGRES_CONNECT_TIMEOUT", "10")),
     application_name='scraper_scheduler'
 )
 
@@ -50,16 +55,21 @@ RETRY_BACKOFF_BASE = float(os.getenv("RETRY_BACKOFF_BASE", "2.0"))
 JOB_TIMEOUT_SEC = int(os.getenv("JOB_TIMEOUT_SEC", "1800"))  # 30 minutes
 HEALTH_CHECK_INTERVAL = int(os.getenv("HEALTH_CHECK_INTERVAL", "60"))  # 1 minute
 
+# ======================================================================
+# EXCEPTIONS PERSONNALISÉES
+# ======================================================================
 
 class DatabaseError(Exception):
     """Exception pour erreurs base de données"""
     pass
 
-
 class JobExecutionError(Exception):
     """Exception pour erreurs d'exécution de job"""
     pass
 
+# ======================================================================
+# GESTIONNAIRE BASE DE DONNÉES ROBUSTE
+# ======================================================================
 
 class DatabaseManager:
     """Gestionnaire de connexions DB robuste pour le scheduler"""
@@ -156,6 +166,49 @@ class DatabaseManager:
                 pass
         self._connection = None
 
+# ======================================================================
+# UTILITAIRES DE GESTION D'ERREUR (VERSION SIMPLIFIÉE)
+# ======================================================================
+
+def categorize_error(error: Exception, status_code: int = None, message: str = "") -> str:
+    """
+    Catégorise une erreur de manière simplifiée (sans dépendances externes)
+    """
+    if status_code:
+        if 500 <= status_code < 600:
+            return "http_5xx"
+        if 400 <= status_code < 500:
+            return "http_4xx"
+    
+    # Classification basique sur le message
+    msg = message.lower() + " " + str(error).lower()
+    
+    if any(keyword in msg for keyword in ["timeout", "timed out"]):
+        return "timeout"
+    elif any(keyword in msg for keyword in ["proxy", "connection refused", "connection reset"]):
+        return "network"
+    elif any(keyword in msg for keyword in ["ssl", "certificate", "handshake"]):
+        return "ssl"
+    elif any(keyword in msg for keyword in ["captcha", "blocked", "403"]):
+        return "anti_bot"
+    else:
+        return "unknown"
+
+def handle_error(ex: Exception, context: dict = None) -> str:
+    """
+    Gestion d'erreur transversale simplifiée
+    """
+    context = context or {}
+    category = categorize_error(ex, context.get("status_code"), str(ex))
+    
+    # Log de l'erreur
+    logger.warning(f"Erreur catégorisée comme '{category}': {ex}")
+    
+    return category
+
+# ======================================================================
+# SCHEDULER PRINCIPAL
+# ======================================================================
 
 class ScrapingScheduler:
     def __init__(self):
@@ -503,23 +556,9 @@ class ScrapingScheduler:
         except Exception:
             pass
 
-
-def handle_error(ex: Exception, context: dict = None):
-    """
-    Gestion d'erreur transversale : catégorise et ouvre un circuit breaker sur proxy si pertinent.
-    """
-    context = context or {}
-    cat = categorize(ex, context.get("status_code"), str(ex))
-
-    # open circuit on persistent proxy failures
-    proxy = context.get("proxy")
-    if proxy and cat in ("network", "proxy", "timeout"):
-        key = f"proxy:{proxy.get('id') or proxy.get('host')}"
-        open_cb(key, context.get("cooldown", 300))
-
-    # TODO: persister dans error_events (DB) si souhaité
-    return cat
-
+# ======================================================================
+# POINT D'ENTRÉE PRINCIPAL
+# ======================================================================
 
 def main():
     """Point d'entrée principal"""
@@ -531,7 +570,6 @@ def main():
     except Exception as e:
         logger.critical(f"Erreur fatale: {e}", exc_info=True)
         exit(1)
-
 
 if __name__ == "__main__":
     main()

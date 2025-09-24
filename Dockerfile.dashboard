@@ -1,8 +1,8 @@
 FROM python:3.11-slim
 
 LABEL maintainer="Scraper Pro Team" \
-      version="2.0" \
-      description="Scraper Pro Dashboard - Fixed Version"
+    version="2.0" \
+    description="Scraper Pro Dashboard - Fixed Version"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -11,13 +11,15 @@ ENV PYTHONUNBUFFERED=1 \
 # Création de l'utilisateur dashboard
 RUN groupadd -r dashboard && useradd -r -g dashboard -d /app -s /bin/bash dashboard
 
-# Installation des dépendances système
+# Installation des dépendances système (CORRIGÉ - ajout wget et curl)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     libpq-dev \
     postgresql-client \
     curl \
+    wget \
+    procps \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -46,16 +48,9 @@ USER dashboard
 # Exposition du port
 EXPOSE 8501
 
-# Health check amélioré pour Streamlit
-HEALTHCHECK --interval=60s --timeout=20s --start-period=120s --retries=3 \
-    CMD curl -f --max-time 15 http://localhost:8501/_stcore/health || \
-        python -c "import requests, sys; \
-        try: \
-            r = requests.get('http://localhost:8501/_stcore/health', timeout=15); \
-            sys.exit(0 if r.status_code == 200 else 1) \
-        except Exception as e: \
-            print(f'Dashboard health check failed: {e}'); \
-            sys.exit(1)"
+# Health check amélioré et simplifié
+HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:8501/_stcore/health || exit 1
 
 # Configuration Streamlit
 ENV STREAMLIT_SERVER_PORT=8501 \
@@ -66,7 +61,7 @@ ENV STREAMLIT_SERVER_PORT=8501 \
 
 # Point d'entrée
 CMD ["streamlit", "run", "dashboard/app.py", \
-     "--server.port=8501", \
-     "--server.address=0.0.0.0", \
-     "--server.headless=true", \
-     "--browser.gatherUsageStats=false"]
+    "--server.port=8501", \
+    "--server.address=0.0.0.0", \
+    "--server.headless=true", \
+    "--browser.gatherUsageStats=false"]

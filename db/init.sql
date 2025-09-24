@@ -1,6 +1,6 @@
 -- =================================================================
 -- SCHEMA BASE DE DONNÉES OPTIMISÉ PRODUCTION
--- Version: 2.0 Production-Ready (CORRIGÉ)
+-- Version: 2.1 Production-Ready avec Custom Keywords
 -- Date: 2025-01-XX
 -- =================================================================
 
@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS queue (
     execution_time_seconds INTEGER,
     contacts_extracted INTEGER DEFAULT 0,
     
+    -- Nouvelles colonnes pour mots-clés personnalisés
+    custom_keywords TEXT[], -- Array de mots-clés saisis
+    match_mode VARCHAR(20) DEFAULT 'any' CHECK (match_mode IN ('any', 'multiple', 'all')), -- 'any', 'multiple', 'all'
+    min_matches INTEGER DEFAULT 1,
+    
     -- Métadonnées
     created_by TEXT DEFAULT 'dashboard',
     created_at TIMESTAMP DEFAULT NOW(),
@@ -68,6 +73,11 @@ CREATE INDEX IF NOT EXISTS idx_queue_status_updated
 CREATE INDEX IF NOT EXISTS idx_queue_theme_status 
     ON queue(theme, status) 
     WHERE deleted_at IS NULL;
+
+-- Index pour recherche par mots-clés personnalisés
+CREATE INDEX IF NOT EXISTS idx_queue_custom_keywords 
+    ON queue USING GIN(custom_keywords) 
+    WHERE custom_keywords IS NOT NULL AND deleted_at IS NULL;
 
 -- =================================================================
 -- TABLE CONTACTS - Contacts extraits
@@ -155,6 +165,13 @@ CREATE TABLE IF NOT EXISTS proxies (
     failed_requests INTEGER DEFAULT 0,
     last_test_at TIMESTAMP,
     last_test_status TEXT CHECK (last_test_status IN (NULL, 'success', 'failed', 'timeout')),
+    
+    -- Colonnes de résilience
+    failure_count INTEGER DEFAULT 0,
+    success_count INTEGER DEFAULT 0,
+    consecutive_failures INTEGER DEFAULT 0,
+    last_error TEXT,
+    cooldown_until TIMESTAMP,
     
     -- Geo et metadata
     country_code CHAR(2),
@@ -263,7 +280,7 @@ INSERT INTO settings(key, value, description, category) VALUES
     ('health_check_interval', '60', 'Intervalle health check (secondes)', 'monitoring'),
     ('cleanup_retention_days', '30', 'Rétention des logs (jours)', 'maintenance'),
     ('enable_email_alerts', 'false', 'Activer les alertes email', 'alerts'),
-    ('database_version', '2.0', 'Version du schéma de base de données', 'system')
+    ('database_version', '2.1', 'Version du schéma de base de données', 'system')
 ON CONFLICT (key) DO NOTHING;
 
 -- =================================================================
@@ -293,6 +310,43 @@ CREATE INDEX IF NOT EXISTS idx_logs_level_component
 CREATE INDEX IF NOT EXISTS idx_logs_job_id 
     ON system_logs(job_id, timestamp DESC) 
     WHERE job_id IS NOT NULL;
+
+-- =================================================================
+-- TABLE SEEN_URLS - URLs normalisées et déduplication
+-- =================================================================
+CREATE TABLE IF NOT EXISTS seen_urls (
+    id BIGSERIAL PRIMARY KEY,
+    url TEXT UNIQUE,
+    normalized_url TEXT,
+    content_hash TEXT,
+    first_seen_at TIMESTAMP DEFAULT NOW(),
+    last_seen_at TIMESTAMP DEFAULT NOW(),
+    job_id INTEGER,
+    notes TEXT
+);
+
+-- Indexes for faster lookup
+CREATE INDEX IF NOT EXISTS idx_seen_urls_normalized ON seen_urls (normalized_url);
+CREATE INDEX IF NOT EXISTS idx_seen_urls_hash ON seen_urls (content_hash);
+CREATE INDEX IF NOT EXISTS idx_seen_urls_job ON seen_urls (job_id);
+
+-- =================================================================
+-- TABLE ERROR_EVENTS - Événements d'erreur
+-- =================================================================
+CREATE TABLE IF NOT EXISTS error_events (
+    id BIGSERIAL PRIMARY KEY,
+    source TEXT, -- 'scraper','scheduler','dashboard'
+    category TEXT, -- network, http_4xx, http_5xx, parse, timeout, proxy, db, unknown
+    message TEXT,
+    details JSONB,
+    proxy_id INTEGER,
+    url TEXT,
+    status_code INTEGER,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_error_events_created ON error_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_error_events_category ON error_events (category);
 
 -- =================================================================
 -- VUES UTILES POUR MONITORING
@@ -387,6 +441,8 @@ ANALYZE contacts;
 ANALYZE proxies;
 ANALYZE sessions;
 ANALYZE settings;
+ANALYZE seen_urls;
+ANALYZE error_events;
 
 -- Log de fin d'initialisation
 INSERT INTO system_logs (level, component, message) VALUES (
@@ -399,51 +455,8 @@ INSERT INTO system_logs (level, component, message) VALUES (
 DO $$
 BEGIN
     RAISE NOTICE 'Base de données Scraper Pro initialisée avec succès !';
-    RAISE NOTICE 'Tables créées: queue, contacts, proxies, sessions, settings, system_logs';
-    RAISE NOTICE 'Indexes créés: % indexes de performance', 15;
+    RAISE NOTICE 'Tables créées: queue, contacts, proxies, sessions, settings, system_logs, seen_urls, error_events';
+    RAISE NOTICE 'Indexes créés: % indexes de performance', 20;
+    RAISE NOTICE 'Nouvelles fonctionnalités: mots-clés personnalisés, déduplication URLs, gestion erreurs avancée';
     RAISE NOTICE 'Configuration prête pour production';
 END $$;
-
--- =================================================================
--- ADVANCED FEATURES - Non-destructive updates (idempotent)
--- =================================================================
-
--- Table to store normalized URLs and deduplication hashes
-CREATE TABLE IF NOT EXISTS seen_urls (
-    id BIGSERIAL PRIMARY KEY,
-    url TEXT UNIQUE,
-    normalized_url TEXT,
-    content_hash TEXT,
-    first_seen_at TIMESTAMP DEFAULT NOW(),
-    last_seen_at TIMESTAMP DEFAULT NOW(),
-    job_id INTEGER,
-    notes TEXT
-);
-
--- Indexes for faster lookup
-CREATE INDEX IF NOT EXISTS idx_seen_urls_normalized ON seen_urls (normalized_url);
-CREATE INDEX IF NOT EXISTS idx_seen_urls_hash ON seen_urls (content_hash);
-CREATE INDEX IF NOT EXISTS idx_seen_urls_job ON seen_urls (job_id);
-
--- Extend proxies table with resilience columns
-ALTER TABLE IF EXISTS proxies
-    ADD COLUMN IF NOT EXISTS failure_count INTEGER DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS success_count INTEGER DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS last_error TEXT,
-    ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMP;
-
--- Error events table
-CREATE TABLE IF NOT EXISTS error_events (
-    id BIGSERIAL PRIMARY KEY,
-    source TEXT, -- 'scraper','scheduler','dashboard'
-    category TEXT, -- network, http_4xx, http_5xx, parse, timeout, proxy, db, unknown
-    message TEXT,
-    details JSONB,
-    proxy_id INTEGER,
-    url TEXT,
-    status_code INTEGER,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_error_events_created ON error_events (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_error_events_category ON error_events (category);

@@ -49,6 +49,12 @@ TRANSLATIONS = {
         'job_country': 'Pays cible',
         'job_theme': 'Thème de recherche',
         'job_language': 'Langue',
+        'custom_keywords': 'Mots-clés personnalisés',
+        'match_mode': 'Mode de correspondance',
+        'min_matches': 'Nombre minimum de correspondances',
+        'match_mode_any': 'Au moins un mot-clé',
+        'match_mode_multiple': 'Plusieurs mots-clés',
+        'match_mode_all': 'Tous les mots-clés',
         'use_javascript': 'Utiliser JavaScript',
         'max_pages': 'Pages maximum',
         'priority': 'Priorité',
@@ -92,6 +98,12 @@ TRANSLATIONS = {
         'job_country': 'Target country',
         'job_theme': 'Search theme',
         'job_language': 'Language',
+        'custom_keywords': 'Custom keywords',
+        'match_mode': 'Match mode',
+        'min_matches': 'Minimum matches',
+        'match_mode_any': 'At least one keyword',
+        'match_mode_multiple': 'Multiple keywords',
+        'match_mode_all': 'All keywords',
         'use_javascript': 'Use JavaScript',
         'max_pages': 'Maximum pages',
         'priority': 'Priority',
@@ -305,6 +317,19 @@ def validate_url(url: str) -> bool:
     )
     return bool(url_pattern.match(url))
 
+def parse_keywords(keywords_text: str) -> List[str]:
+    """Parse les mots-clés depuis une zone de texte"""
+    if not keywords_text:
+        return []
+    
+    # Séparer par virgules, retours à la ligne, ou points-virgules
+    keywords = re.split(r'[,;\n]+', keywords_text.strip())
+    
+    # Nettoyer et filtrer les mots-clés vides
+    keywords = [kw.strip() for kw in keywords if kw.strip()]
+    
+    return keywords
+
 # ============================================================================
 # AUTHENTIFICATION - CORRIGÉE
 # ============================================================================
@@ -462,7 +487,7 @@ def page_dashboard():
                 st.metric(label, "N/A")
 
 def page_jobs():
-    """Gestionnaire de jobs avec gestion d'erreur robuste - CORRIGÉ"""
+    """Gestionnaire de jobs avec mots-clés personnalisés - MODIFIÉ"""
     st.title(t('jobs_manager'))
     
     # Formulaire de création de job
@@ -483,10 +508,24 @@ def page_jobs():
                     help="Pays cible pour filtrer les résultats"
                 )
                 
-                theme = st.selectbox(
-                    t('job_theme'),
-                    options=["lawyers", "doctors", "consultants", "real-estate", "restaurants"],
-                    help="Type de professionnels à rechercher"
+                # MODIFIÉ: Remplacement du selectbox theme par text_area pour mots-clés
+                keywords_text = st.text_area(
+                    t('custom_keywords'),
+                    placeholder="avocat, lawyer, cabinet juridique\ndocteur, médecin, clinique\nconsultant, conseil",
+                    help="Entrez les mots-clés à rechercher, séparés par des virgules ou des retours à la ligne",
+                    height=100
+                )
+                
+                # AJOUTÉ: Selectbox pour le mode de correspondance
+                match_mode = st.selectbox(
+                    t('match_mode'),
+                    options=["any", "multiple", "all"],
+                    format_func=lambda x: {
+                        "any": t('match_mode_any'),
+                        "multiple": t('match_mode_multiple'), 
+                        "all": t('match_mode_all')
+                    }[x],
+                    help="Comment les mots-clés doivent correspondre dans le contenu"
                 )
             
             with col2:
@@ -509,6 +548,18 @@ def page_jobs():
                     value=25,
                     help="Nombre maximum de pages à analyser par domaine"
                 )
+                
+                # AJOUTÉ: Champ pour le nombre minimum de correspondances (si mode multiple/all)
+                if match_mode in ['multiple', 'all']:
+                    min_matches = st.number_input(
+                        t('min_matches'),
+                        min_value=1,
+                        max_value=10,
+                        value=2 if match_mode == 'multiple' else 1,
+                        help="Nombre minimum de mots-clés qui doivent être trouvés"
+                    )
+                else:
+                    min_matches = 1
             
             # Boutons d'action
             col_a, col_b = st.columns(2)
@@ -523,12 +574,18 @@ def page_jobs():
             if test_button and url:
                 if validate_url(url):
                     st.success("✅ URL valide")
+                    if keywords_text:
+                        keywords = parse_keywords(keywords_text)
+                        st.info(f"Mots-clés détectés: {', '.join(keywords[:5])}" + 
+                               (f" (+{len(keywords)-5} autres)" if len(keywords) > 5 else ""))
                 else:
                     st.error("❌ URL invalide")
             
             if create_button and url:
                 if not validate_url(url):
                     st.error("❌ Veuillez entrer une URL valide")
+                elif not keywords_text.strip():
+                    st.error("❌ Veuillez entrer au moins un mot-clé")
                 else:
                     try:
                         # Vérifier les proxies
@@ -536,19 +593,25 @@ def page_jobs():
                         if not proxy_count or proxy_count['count'] == 0:
                             st.error("❌ Aucun proxy configuré ! Configurez des proxies avant de lancer un job.")
                         else:
-                            # Créer le job
+                            # Parser les mots-clés
+                            keywords = parse_keywords(keywords_text)
+                            
+                            # MODIFIÉ: Créer le job avec custom_keywords au lieu de theme
                             result = execute_query("""
                                 INSERT INTO queue (
-                                    url, country_filter, lang_filter, theme, 
-                                    use_js, max_pages_per_domain, status, created_by
-                                ) VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s)
+                                    url, country_filter, lang_filter, custom_keywords, 
+                                    match_mode, min_matches, use_js, max_pages_per_domain, 
+                                    status, created_by
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)
                             """, (
-                                url, country or None, language or None, theme,
-                                use_js, max_pages, st.session_state.get('username', 'dashboard')
+                                url, country or None, language or None, keywords,
+                                match_mode, min_matches, use_js, max_pages, 
+                                st.session_state.get('username', 'dashboard')
                             ), fetch='none')
                             
                             if result:
                                 st.success("🚀 Job de scraping lancé avec succès!")
+                                st.info(f"Configuration: {len(keywords)} mots-clés, mode '{match_mode}', {min_matches} correspondance(s) minimum")
                                 st.balloons()
                                 time.sleep(1)
                                 st.rerun()
@@ -558,11 +621,11 @@ def page_jobs():
                     except Exception as e:
                         st.error(f"❌ Erreur lors de la création du job: {e}")
     
-    # Liste des jobs récents - CORRIGÉE
+    # Liste des jobs récents - MODIFIÉE pour afficher custom_keywords
     st.subheader("Jobs Récents")
     try:
         jobs = execute_query("""
-            SELECT id, url, status, theme, created_at, updated_at,
+            SELECT id, url, status, custom_keywords, match_mode, created_at, updated_at,
                    CASE 
                        WHEN status = 'done' THEN '✅'
                        WHEN status = 'failed' THEN '❌'
@@ -578,16 +641,21 @@ def page_jobs():
         if jobs:
             df = pd.DataFrame(jobs)
             df['url_short'] = df['url'].str[:50] + '...'
+            # Formatage des mots-clés pour affichage
+            df['keywords_display'] = df['custom_keywords'].apply(
+                lambda x: ', '.join(x[:3]) + (f' (+{len(x)-3})' if len(x) > 3 else '') if x else 'Aucun'
+            )
             
             st.dataframe(
-                df[['status_icon', 'id', 'url_short', 'theme', 'status', 'created_at']],
+                df[['status_icon', 'id', 'url_short', 'keywords_display', 'match_mode', 'status', 'created_at']],
                 hide_index=True,
                 use_container_width=True,
                 column_config={
                     'status_icon': st.column_config.TextColumn("", width=40),
                     'id': st.column_config.NumberColumn("ID", width=60),
                     'url_short': st.column_config.TextColumn("URL"),
-                    'theme': st.column_config.TextColumn("Thème", width=100),
+                    'keywords_display': st.column_config.TextColumn("Mots-clés", width=200),
+                    'match_mode': st.column_config.TextColumn("Mode", width=80),
                     'status': st.column_config.TextColumn("Status", width=100),
                     'created_at': st.column_config.DatetimeColumn("Créé le", width=150)
                 }

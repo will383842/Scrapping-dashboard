@@ -1,21 +1,31 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+SESSION.PY - CORRECTED VERSION
+Version: 2.1 Production-Ready Fixed
+Description: Gestion sécurisée des sessions avec validation complète
+"""
+
 import os
 import psycopg2
 import logging
+from datetime import datetime  # CORRIGÉ: Import ajouté
 from psycopg2.extras import RealDictCursor
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pathlib import Path
 
 # Configuration logging
 logger = logging.getLogger(__name__)
 
-# Configuration base de données
-DB = dict(
-    host=os.getenv("POSTGRES_HOST", "db"), 
-    port=int(os.getenv("POSTGRES_PORT", "5432")),
-    dbname=os.getenv("POSTGRES_DB", "scraper"), 
-    user=os.getenv("POSTGRES_USER", "scraper"),
-    password=os.getenv("POSTGRES_PASSWORD", "scraper")
-)
+# Configuration base de données CORRIGÉE
+DB_CONFIG = {
+    'host': os.getenv("POSTGRES_HOST", "db"),
+    'port': int(os.getenv("POSTGRES_PORT", "5432")),
+    'dbname': os.getenv("POSTGRES_DB", "scraper_pro"),  # CORRIGÉ: cohérent
+    'user': os.getenv("POSTGRES_USER", "scraper_admin"),  # CORRIGÉ: cohérent
+    'password': os.getenv("POSTGRES_PASSWORD", "scraper_admin"),
+    'connect_timeout': int(os.getenv("POSTGRES_CONNECT_TIMEOUT", "10"))
+}
 
 # Répertoire racine autorisé pour les sessions (sécurité)
 ALLOWED_BASE = os.path.abspath("/app/sessions")
@@ -90,7 +100,7 @@ def get_db_connection() -> Optional[psycopg2.connection]:
     Obtient une connexion à la base de données avec gestion d'erreur
     """
     try:
-        conn = psycopg2.connect(**DB, connect_timeout=10)
+        conn = psycopg2.connect(**DB_CONFIG)
         return conn
     except psycopg2.Error as e:
         logger.error(f"Erreur connexion base de données: {e}")
@@ -296,6 +306,3 @@ def validate_session_file(session_id: int) -> bool:
     except Exception as e:
         logger.error(f"Erreur validation session {session_id}: {e}")
         return False
-
-# Import datetime for expiration check
-from datetime import datetime

@@ -1,0 +1,11 @@
+{
+  "rotation_mode": "weighted_random",
+  "sticky_ttl_seconds": 300,
+  "weights": {
+    "default": 1.0
+  },
+  "cooldown_seconds": 120,
+  "max_consecutive_failures": 3,
+  "circuit_breaker_failures": 5,
+  "circuit_breaker_cooldown_seconds": 600
+}

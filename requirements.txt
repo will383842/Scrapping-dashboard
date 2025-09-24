@@ -1,23 +1,171 @@
+# ============================================================================
+# SCRAPER PRO - REQUIREMENTS PRODUCTION v2.1
+# Description: Dépendances complètes avec fonctionnalités avancées
+# ============================================================================
+
+# ==========================================================================
+# CORE FRAMEWORK - Scraping & Web
+# ==========================================================================
 scrapy==2.11.2
 scrapy-playwright==0.0.36
 playwright==1.47.0
-pandas==2.1.4
-numpy==1.25.2
+streamlit==1.38.0
+
+# ==========================================================================
+# DATABASE & ORM
+# ==========================================================================
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.23
-streamlit==1.38.0
-python-slugify==8.0.1
-tldextract==5.1.1
-phonenumbers==8.13.45
+
+# ==========================================================================
+# REDIS & CACHE - NOUVEAU pour coordination
+# ==========================================================================
+redis==5.0.1
+redis-py-cluster==2.1.3
+hiredis==2.2.3          # Performance boost pour Redis
+fakeredis==2.20.1        # Tests sans Redis server
+
+# ==========================================================================
+# DATA PROCESSING & EXPORT
+# ==========================================================================
+pandas==2.1.4
+numpy==1.25.2
+openpyxl==3.1.2
+xlsxwriter==3.2.0
+
+# ==========================================================================
+# PLOTTING & VISUALIZATION
+# ==========================================================================
+plotly==5.17.0
+matplotlib==3.8.2
+seaborn==0.13.0
+
+# ==========================================================================
+# WEB & HTTP - Extended
+# ==========================================================================
 requests==2.31.0
 urllib3==2.1.0
+tldextract==5.1.1
+httpx==0.25.2            # Async HTTP client
+aiohttp==3.9.1           # Async HTTP pour tests concurrents
+
+# ==========================================================================
+# TEXT PROCESSING & CONTENT
+# ==========================================================================
+python-slugify==8.0.1
+phonenumbers==8.13.45
+langdetect==1.0.9
+textblob==0.17.1
+
+# ==========================================================================
+# URL & CONTENT PROCESSING - NOUVEAU pour anti-doublons
+# ==========================================================================
+urltools==0.3.2         # URL normalization
+beautifulsoup4==4.12.2  # HTML parsing avancé
+lxml==4.9.3              # XML/HTML parser performance
+html5lib==1.1            # HTML parser robust
+bleach==6.1.0            # HTML sanitization
+
+# ==========================================================================
+# HASHING & CRYPTO - NOUVEAU pour content hashing
+# ==========================================================================
+xxhash==3.4.1            # Fast hashing pour content dedup
+hashlib-compat==1.0.1   # Hash compatibility
+mmh3==4.0.0              # MurmurHash3 for fast hashing
+
+# ==========================================================================
+# CONCURRENCY & ASYNC - NOUVEAU pour circuit breakers
+# ==========================================================================
+asyncio-throttle==1.0.2 # Rate limiting async
+circuit-breaker==1.1.0  # Circuit breaker pattern
+tenacity==8.2.3          # Retry with backoff
+backoff==2.2.1           # Exponential backoff
+
+# ==========================================================================
+# CONFIGURATION & ENVIRONMENT
+# ==========================================================================
 python-dotenv==1.0.0
-PyYAML==6.0.1
-xlsxwriter==3.2.0
-openpyxl==3.1.2
-structlog==23.2.0
-prometheus-client==0.19.0
-cryptography==42.0.8
-cachetools==5.3.2
+pyyaml==6.0.1
 click==8.1.7
 rich==13.7.0
+typer==0.9.0
+
+# ==========================================================================
+# MONITORING & METRICS - Extended
+# ==========================================================================
+prometheus-client==0.19.0
+psutil==5.9.6            # System metrics
+structlog==23.2.0        # Structured logging
+
+# ==========================================================================
+# VALIDATION & SCHEMA
+# ==========================================================================
+jsonschema==4.20.0      # JSON validation
+cerberus==1.3.4          # Data validation
+email-validator==2.1.0   # Email validation
+phonenumberslite==8.13.25 # Phone validation
+
+# ==========================================================================
+# TIME & DATE HANDLING
+# ==========================================================================
+python-dateutil==2.8.2
+pytz==2023.3.post1      # Timezone handling
+croniter==2.0.1          # Cron scheduling
+
+# ==========================================================================
+# SECURITY & CRYPTO
+# ==========================================================================
+cryptography==41.0.8
+bcrypt==4.1.2
+passlib==1.7.4          # Password hashing
+
+# ==========================================================================
+# TESTING & DEVELOPMENT
+# ==========================================================================
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+pytest-cov==4.1.0
+factory-boy==3.3.0      # Test data generation
+
+# Development tools
+black==23.11.0          # Code formatting
+flake8==6.1.0           # Code linting
+mypy==1.7.1             # Type checking
+pre-commit==3.6.0       # Git hooks
+
+# ==========================================================================
+# UTILITIES & HELPERS
+# ==========================================================================
+more-itertools==10.1.0  # Advanced iteration tools
+toolz==0.12.0           # Functional utilities
+funcy==2.0              # Functional programming
+cachetools==5.3.2       # Caching utilities
+filelock==3.13.1        # File locking for coordination
+
+# ==========================================================================
+# NETWORK & IP HANDLING
+# ==========================================================================
+ipaddress>=1.0.23       # IP address handling
+netaddr==0.10.1         # Network address manipulation
+requests-toolbelt==1.0.0 # HTTP utilities
+
+# ==========================================================================
+# PERFORMANCE & PROFILING
+# ==========================================================================
+memory-profiler==0.61.0 # Memory profiling
+line-profiler==4.1.1   # Line-by-line profiling
+py-spy==0.3.14          # Sampling profiler
+
+# ==========================================================================
+# DATABASE MIGRATIONS & TOOLS
+# ==========================================================================
+alembic==1.13.0         # Database migrations
+SQLAlchemy-Utils==0.41.1 # SQLAlchemy utilities
+
+# ==========================================================================
+# SPECIALIZED UTILITIES
+# ==========================================================================
+user-agents==2.2.0      # User agent parsing
+fake-useragent==1.4.0   # Random user agents
+robotparser==1.0.1      # robots.txt parsing

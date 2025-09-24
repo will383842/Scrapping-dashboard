@@ -1,0 +1,10 @@
+{
+  "contains": {
+    "timeout": "timeout",
+    "proxy": "proxy",
+    "ssl": "network",
+    "connection refused": "network",
+    "dns": "network",
+    "captcha": "anti_bot"
+  }
+}

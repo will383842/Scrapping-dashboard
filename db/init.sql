@@ -403,3 +403,47 @@ BEGIN
     RAISE NOTICE 'Indexes créés: % indexes de performance', 15;
     RAISE NOTICE 'Configuration prête pour production';
 END $$;
+
+-- =================================================================
+-- ADVANCED FEATURES - Non-destructive updates (idempotent)
+-- =================================================================
+
+-- Table to store normalized URLs and deduplication hashes
+CREATE TABLE IF NOT EXISTS seen_urls (
+    id BIGSERIAL PRIMARY KEY,
+    url TEXT UNIQUE,
+    normalized_url TEXT,
+    content_hash TEXT,
+    first_seen_at TIMESTAMP DEFAULT NOW(),
+    last_seen_at TIMESTAMP DEFAULT NOW(),
+    job_id INTEGER,
+    notes TEXT
+);
+
+-- Indexes for faster lookup
+CREATE INDEX IF NOT EXISTS idx_seen_urls_normalized ON seen_urls (normalized_url);
+CREATE INDEX IF NOT EXISTS idx_seen_urls_hash ON seen_urls (content_hash);
+CREATE INDEX IF NOT EXISTS idx_seen_urls_job ON seen_urls (job_id);
+
+-- Extend proxies table with resilience columns
+ALTER TABLE IF EXISTS proxies
+    ADD COLUMN IF NOT EXISTS failure_count INTEGER DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS success_count INTEGER DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS last_error TEXT,
+    ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMP;
+
+-- Error events table
+CREATE TABLE IF NOT EXISTS error_events (
+    id BIGSERIAL PRIMARY KEY,
+    source TEXT, -- 'scraper','scheduler','dashboard'
+    category TEXT, -- network, http_4xx, http_5xx, parse, timeout, proxy, db, unknown
+    message TEXT,
+    details JSONB,
+    proxy_id INTEGER,
+    url TEXT,
+    status_code INTEGER,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_error_events_created ON error_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_error_events_category ON error_events (category);

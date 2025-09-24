@@ -1,43 +1,43 @@
-import random
-import time
-import threading
-from datetime import datetime, timedelta
 
-class ProxyRotator:
-    def __init__(self):
-        self.current_proxy = None
-        self.failed_proxies = set()
-        self.proxy_stats = {}
-        self.rotation_interval = 300  # 5 minutes
-        
-    def get_next_proxy(self, country=None):
-        """Rotation intelligente des proxies avec scoring"""
-        query = """
-        SELECT id, scheme, host, port, username, password, success_rate, response_time_ms, last_used_at
-        FROM proxies 
-        WHERE active = true 
-          AND id NOT IN %s
-          AND (country_code = %s OR %s IS NULL)
-        ORDER BY 
-            success_rate DESC,
-            response_time_ms ASC,
-            last_used_at ASC NULLS FIRST
-        LIMIT 5
-        """
-        
-        failed_list = tuple(self.failed_proxies) if self.failed_proxies else (0,)
-        proxies = execute_query(query, (failed_list, country, country))
-        
-        if not proxies:
-            # Reset failed proxies si plus aucun disponible
-            self.failed_proxies.clear()
-            return self.get_next_proxy(country)
-        
-        # Sélection pondérée basée sur performance
-        weights = [p['success_rate'] * (1000 / max(p['response_time_ms'], 100)) for p in proxies]
-        selected = random.choices(proxies, weights=weights, k=1)[0]
-        
-        # Marquer comme utilisé
-        execute_query("UPDATE proxies SET last_used_at = NOW() WHERE id = %s", (selected['id'],))
-        
-        return selected
+import random, time
+from typing import List, Dict, Any, Optional
+from .redis_coordination import get_redis_client, _ns
+
+def _sticky_key(job_id: Optional[int]) -> str:
+    return _ns(f"sticky:{job_id or 'global'}")
+
+def choose(proxies: List[Dict[str, Any]], mode: str = "weighted_random", weights: Optional[Dict[str,float]]=None, job_id: Optional[int]=None, sticky_ttl: int=300) -> Optional[Dict[str, Any]]:
+    if not proxies:
+        return None
+    weights = weights or {}
+    if mode == "round_robin":
+        r = get_redis_client()
+        idx = r.incr(_ns("rr:index")) % len(proxies)
+        return proxies[idx]
+    if mode == "random":
+        return random.choice(proxies)
+    if mode == "sticky_session":
+        r = get_redis_client()
+        key = _sticky_key(job_id)
+        idx = r.get(key)
+        if idx is not None:
+            try:
+                return proxies[int(idx) % len(proxies)]
+            except Exception:
+                pass
+        idx = random.randrange(len(proxies))
+        r.set(key, str(idx), ex=sticky_ttl)
+        return proxies[idx]
+    # weighted_random default
+    def w(p):
+        # weight per label or host, else default 1.0
+        return float(weights.get(str(p.get('label') or p.get('host')), weights.get("default", 1.0)))
+    choices = [(p, w(p)) for p in proxies]
+    total = sum(w for _, w in choices) or 1.0
+    pick = random.uniform(0, total)
+    acc = 0.0
+    for p, wgt in choices:
+        acc += wgt
+        if pick <= acc:
+            return p
+    return proxies[-1]

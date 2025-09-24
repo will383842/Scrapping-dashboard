@@ -61,13 +61,17 @@ class SingleURLSpider(scrapy.Spider):
             item = ContactItem(name=name, org=org, email=emails[0], languages=page_lang,
                                phone=phones[0] if phones else None, country=response.meta.get("country"),
                                url=response.url, theme=self.theme, source="Dashboard", page_lang=page_lang,
-                               raw_text=None, query_id=self.query_id, seed_url=response.meta.get("seed_url"))
+                               raw_text=None, content_hash=content_hash(response.text), query_id=self.query_id, seed_url=response.meta.get("seed_url"))
             self.collected += 1
             yield item
             if self.to_collect and self.collected >= self.to_collect:
                 return
 
         for href in response.css("a::attr(href)").getall()[:80]:
+            nu = normalize(absolutize(response.url, href))
+            if is_seen(nu, job_id=self.query_id):
+                continue
+            mark_seen(nu, job_id=self.query_id)
             if self.to_collect and self.collected >= self.to_collect:
                 break
             u=absolutize(response.url, href)

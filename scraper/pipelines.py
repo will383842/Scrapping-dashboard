@@ -307,7 +307,7 @@ class PostgresPipeline:
                 "phone": clean_text_field(item.get("phone", ""), 30),
                 "country": clean_text_field(item.get("country", ""), 100),
                 "url": item.get("url", "").strip()[:500] if item.get("url") else None,
-                "theme": clean_text_field(item.get("theme", ""), 50),
+                "theme": None,
                 "source": clean_text_field(item.get("source", "Scraper"), 50),
                 "page_lang": clean_text_field(item.get("page_lang", ""), 10),
                 "raw_text": None,  # Pas de stockage du raw_text pour économiser l'espace

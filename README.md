@@ -1,4 +1,4 @@
-﻿# 🕷️ Scraper Pro - Platform de Scraping Web Production-Ready
+# 🕷️ Scraper Pro - Platform de Scraping Web Production-Ready
 
 [![Production Ready](https://img.shields.io/badge/Production-Ready-green.svg)](https://github.com/your-repo/scraper-pro)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-blue.svg)](https://www.docker.com/)

@@ -65,5 +65,5 @@ CMD ["streamlit", "run", "dashboard/app.py", \
     "--server.address=0.0.0.0", \
     "--server.headless=true", \
     "--browser.gatherUsageStats=false"]
-# COPY pages/ /app/pages/   # commented by fix
-# COPY docs/ /app/docs/     # commented by fix
+COPY pages/ /app/pages/
+COPY docs/ /app/docs/
